@@ -388,52 +388,60 @@ class MainApplication:
     
     def _execute_preview(self):
         """Execute mappings and update preview (without saving)."""
-        if not self._validate_ready():
-            return
-        
-        # Disable buttons during execution
-        self.execute_btn.config(state='disabled')
-        self.save_btn.config(state='disabled')
-        self._set_status("Przetwarzanie... Proszę czekać")
-        self._set_progress(0)
-        
-        # Apply current key options
-        self.matcher.key_options = {
-            'case_insensitive': self.case_insensitive_var.get(),
-            'strip_leading_zeros': self.strip_zeros_var.get()
-        }
-        
-        # Apply batch filter if set
-        batch_filter = getattr(self, 'batch_filter', None)
-        self.matcher.batch_filter = batch_filter
-        
-        # Set up progress callback
-        def progress_callback(current, total, message):
-            percent = (current / total * 100) if total > 0 else 0
+        try:
+            if not self._validate_ready():
+                return
             
-            def update_ui():
-                self._set_progress(percent)
-                self._set_status(f"Przetwarzanie: {current:,}/{total:,} wierszy ({percent:.0f}%)")
+            # Disable buttons during execution
+            self.execute_btn.config(state='disabled')
+            self.save_btn.config(state='disabled')
+            self._set_status("Przetwarzanie... Proszę czekać")
+            self._set_progress(0)
             
-            # Schedule UI update on main thread
-            self.root.after(0, update_ui)
-        
-        self.matcher.set_progress_callback(progress_callback)
-        
-        # Run in thread to prevent freezing
-        def execute_thread():
-            try:
-                result = self.matcher.execute()
+            # Apply current key options
+            self.matcher.key_options = {
+                'case_insensitive': self.case_insensitive_var.get(),
+                'strip_leading_zeros': self.strip_zeros_var.get()
+            }
+            
+            # Apply batch filter if set
+            batch_filter = getattr(self, 'batch_filter', None)
+            self.matcher.batch_filter = batch_filter
+            
+            # Set up progress callback
+            def progress_callback(current, total, message):
+                percent = (current / total * 100) if total > 0 else 0
+                
+                def update_ui():
+                    self._set_progress(percent)
+                    self._set_status(f"Przetwarzanie: {current:,}/{total:,} wierszy ({percent:.0f}%)")
                 
                 # Schedule UI update on main thread
-                self.root.after(0, lambda: self._on_execute_complete(result, batch_filter))
-                
-            except Exception as e:
-                self.root.after(0, lambda: self._on_execute_error(str(e)))
-        
-        import threading
-        thread = threading.Thread(target=execute_thread, daemon=True)
-        thread.start()
+                self.root.after(0, update_ui)
+            
+            self.matcher.set_progress_callback(progress_callback)
+            
+            # Run in thread to prevent freezing
+            def execute_thread():
+                try:
+                    result = self.matcher.execute()
+                    
+                    # Schedule UI update on main thread
+                    self.root.after(0, lambda: self._on_execute_complete(result, batch_filter))
+                    
+                except Exception as e:
+                    self.root.after(0, lambda: self._on_execute_error(str(e)))
+            
+            import threading
+            thread = threading.Thread(target=execute_thread, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Błąd krytyczny", f"Nie można uruchomić podglądu:\n{e}")
+            self.execute_btn.config(state='normal')
+            self._set_status("Błąd uruchamiania")
     
     def _on_execute_complete(self, result, batch_filter):
         """Called when execution completes successfully."""
