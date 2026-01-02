@@ -1,0 +1,333 @@
+"""
+Matcher module - the main matching logic engine.
+"""
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple, Callable
+from dataclasses import dataclass, field
+from enum import Enum
+
+from .data_source import DataSource
+from .mapping import ColumnMapping, WriteMode, MappingManager
+from .transformer import apply_transform
+from utils.key_normalizer import normalize_key, is_empty
+
+
+class ChangeType(Enum):
+    """Type of change for a cell."""
+    UNCHANGED = "unchanged"
+    NEW = "new"           # Value added where empty
+    CHANGED = "changed"   # Value modified
+    NO_MATCH = "no_match" # Key not found in any source
+    CONFLICT = "conflict" # Multiple sources with different values
+
+
+@dataclass
+class CellChange:
+    """Represents a change to a single cell."""
+    row_index: int
+    column: str
+    key: str
+    old_value: Any
+    new_value: Any
+    change_type: ChangeType
+    source_id: str
+    source_name: str
+    mapping_id: str
+    write_mode: WriteMode
+    transform: Optional[str] = None
+
+
+@dataclass
+class MatchResult:
+    """Result of matching operation."""
+    result_df: pd.DataFrame
+    changes: List[CellChange] = field(default_factory=list)
+    stats: Dict[str, Any] = field(default_factory=dict)
+    unmatched_keys: List[str] = field(default_factory=list)
+
+
+class DataMatcher:
+    """Main engine for matching and merging data."""
+    
+    def __init__(self):
+        self.base_source: Optional[DataSource] = None
+        self.data_sources: Dict[str, DataSource] = {}
+        self.mapping_manager = MappingManager()
+        self.key_options: Dict[str, Any] = {}
+        
+        # Callbacks for progress updates
+        self._progress_callback: Optional[Callable[[int, int, str], None]] = None
+    
+    def set_base_source(self, source: DataSource) -> None:
+        """Set the base file source."""
+        self.base_source = source
+        # Recalculate matches for all sources
+        if source.key_column:
+            base_keys = self._get_base_keys()
+            for ds in self.data_sources.values():
+                ds.calculate_match_stats(base_keys)
+    
+    def add_source(self, source: DataSource) -> None:
+        """Add a data source."""
+        self.data_sources[source.id] = source
+        # Calculate match stats
+        if self.base_source and self.base_source.key_column:
+            base_keys = self._get_base_keys()
+            source.calculate_match_stats(base_keys)
+    
+    def remove_source(self, source_id: str) -> bool:
+        """Remove a data source."""
+        if source_id in self.data_sources:
+            del self.data_sources[source_id]
+            # Remove associated mappings
+            for m in list(self.mapping_manager.mappings):
+                if m.source_id == source_id:
+                    self.mapping_manager.remove(m.id)
+            return True
+        return False
+    
+    def get_source(self, source_id: str) -> Optional[DataSource]:
+        """Get a data source by ID."""
+        return self.data_sources.get(source_id)
+    
+    def _get_base_keys(self) -> List[str]:
+        """Get list of all keys from base source."""
+        if not self.base_source or not self.base_source.key_column:
+            return []
+        
+        return list(self.base_source.dataframe[self.base_source.key_column].dropna().astype(str))
+    
+    def set_progress_callback(self, callback: Callable[[int, int, str], None]) -> None:
+        """Set callback for progress updates: (current, total, message)."""
+        self._progress_callback = callback
+    
+    def _report_progress(self, current: int, total: int, message: str) -> None:
+        """Report progress to callback if set."""
+        if self._progress_callback:
+            self._progress_callback(current, total, message)
+    
+    def execute(self) -> MatchResult:
+        """Execute all mappings and return the result."""
+        if not self.base_source or self.base_source.dataframe is None:
+            raise ValueError("No base source loaded")
+        
+        if not self.mapping_manager.mappings:
+            raise ValueError("No mappings defined")
+        
+        # Create a copy of the base dataframe
+        result_df = self.base_source.dataframe.copy()
+        changes: List[CellChange] = []
+        unmatched_keys: set = set()
+        
+        base_key_col = self.base_source.key_column
+        total_rows = len(result_df)
+        enabled_mappings = self.mapping_manager.get_enabled()
+        
+        # Check which keys can be matched to any source
+        all_matched_keys: set = set()
+        for source in self.data_sources.values():
+            all_matched_keys.update(source.get_key_lookup().keys())
+        
+        # Process each row
+        for idx, (row_idx, row) in enumerate(result_df.iterrows()):
+            if idx % 100 == 0:
+                self._report_progress(idx, total_rows, f"Przetwarzanie wiersza {idx}/{total_rows}")
+            
+            raw_key = row[base_key_col]
+            normalized_key = normalize_key(raw_key, self.key_options)
+            
+            if normalized_key is None:
+                continue  # Skip empty keys
+            
+            key_matched_somewhere = normalized_key in all_matched_keys
+            
+            if not key_matched_somewhere:
+                unmatched_keys.add(str(raw_key))
+            
+            # Apply each mapping
+            for mapping in enabled_mappings:
+                source = self.data_sources.get(mapping.source_id)
+                if not source:
+                    continue
+                
+                # Create new column if needed
+                if mapping.target_is_new and mapping.target_column not in result_df.columns:
+                    result_df[mapping.target_column] = np.nan
+                
+                # Get source value
+                source_value = source.get_value_for_key(str(raw_key), mapping.source_column)
+                
+                if source_value is None:
+                    # No match in this source, mark if no match anywhere
+                    if not key_matched_somewhere:
+                        changes.append(CellChange(
+                            row_index=row_idx,
+                            column=mapping.target_column,
+                            key=str(raw_key),
+                            old_value=row.get(mapping.target_column),
+                            new_value=None,
+                            change_type=ChangeType.NO_MATCH,
+                            source_id=mapping.source_id,
+                            source_name=mapping.source_name,
+                            mapping_id=mapping.id,
+                            write_mode=mapping.write_mode
+                        ))
+                    continue
+                
+                # Apply transformation
+                if mapping.transform:
+                    source_value = apply_transform(source_value, mapping.transform)
+                
+                # Get current value
+                current_value = row.get(mapping.target_column) if mapping.target_column in row.index else None
+                
+                # Determine if we should write
+                should_write, change_type = self._should_write(
+                    current_value, source_value, mapping.write_mode
+                )
+                
+                if should_write:
+                    # Handle append mode
+                    if mapping.write_mode == WriteMode.APPEND and not is_empty(current_value):
+                        new_value = f"{current_value}{mapping.append_separator}{source_value}"
+                    else:
+                        new_value = source_value
+                    
+                    result_df.at[row_idx, mapping.target_column] = new_value
+                    
+                    changes.append(CellChange(
+                        row_index=row_idx,
+                        column=mapping.target_column,
+                        key=str(raw_key),
+                        old_value=current_value,
+                        new_value=new_value,
+                        change_type=change_type,
+                        source_id=mapping.source_id,
+                        source_name=mapping.source_name,
+                        mapping_id=mapping.id,
+                        write_mode=mapping.write_mode,
+                        transform=mapping.transform
+                    ))
+                else:
+                    # Record unchanged
+                    changes.append(CellChange(
+                        row_index=row_idx,
+                        column=mapping.target_column,
+                        key=str(raw_key),
+                        old_value=current_value,
+                        new_value=current_value,
+                        change_type=ChangeType.UNCHANGED,
+                        source_id=mapping.source_id,
+                        source_name=mapping.source_name,
+                        mapping_id=mapping.id,
+                        write_mode=mapping.write_mode
+                    ))
+        
+        self._report_progress(total_rows, total_rows, "Zakończono")
+        
+        # Calculate stats
+        stats = self._calculate_stats(changes, total_rows)
+        
+        return MatchResult(
+            result_df=result_df,
+            changes=changes,
+            stats=stats,
+            unmatched_keys=list(unmatched_keys)
+        )
+    
+    def _should_write(self, current: Any, new: Any, mode: WriteMode) -> Tuple[bool, ChangeType]:
+        """Determine if a value should be written based on mode."""
+        current_empty = is_empty(current)
+        new_empty = is_empty(new)
+        
+        if mode == WriteMode.OVERWRITE:
+            if current_empty:
+                return True, ChangeType.NEW
+            elif str(current) != str(new):
+                return True, ChangeType.CHANGED
+            return False, ChangeType.UNCHANGED
+        
+        elif mode == WriteMode.FILL_EMPTY:
+            if current_empty and not new_empty:
+                return True, ChangeType.NEW
+            return False, ChangeType.UNCHANGED
+        
+        elif mode == WriteMode.APPEND:
+            if not new_empty:
+                if current_empty:
+                    return True, ChangeType.NEW
+                return True, ChangeType.CHANGED
+            return False, ChangeType.UNCHANGED
+        
+        elif mode == WriteMode.OVERWRITE_IF_DIFFERENT:
+            if str(current) != str(new):
+                if current_empty:
+                    return True, ChangeType.NEW
+                return True, ChangeType.CHANGED
+            return False, ChangeType.UNCHANGED
+        
+        elif mode == WriteMode.OVERWRITE_IF_LONGER:
+            if len(str(new) if new else "") > len(str(current) if current else ""):
+                if current_empty:
+                    return True, ChangeType.NEW
+                return True, ChangeType.CHANGED
+            return False, ChangeType.UNCHANGED
+        
+        elif mode == WriteMode.OVERWRITE_IF_NOT_EMPTY:
+            if not new_empty:
+                if current_empty:
+                    return True, ChangeType.NEW
+                elif str(current) != str(new):
+                    return True, ChangeType.CHANGED
+            return False, ChangeType.UNCHANGED
+        
+        return False, ChangeType.UNCHANGED
+    
+    def _calculate_stats(self, changes: List[CellChange], total_rows: int) -> Dict[str, Any]:
+        """Calculate statistics from changes."""
+        new_count = sum(1 for c in changes if c.change_type == ChangeType.NEW)
+        changed_count = sum(1 for c in changes if c.change_type == ChangeType.CHANGED)
+        no_match_count = len(set(c.key for c in changes if c.change_type == ChangeType.NO_MATCH))
+        
+        rows_with_changes = len(set(c.row_index for c in changes 
+                                     if c.change_type in (ChangeType.NEW, ChangeType.CHANGED)))
+        
+        return {
+            'total_rows': total_rows,
+            'rows_with_changes': rows_with_changes,
+            'rows_no_match': no_match_count,
+            'cells_new': new_count,
+            'cells_changed': changed_count,
+            'cells_total_modified': new_count + changed_count,
+            'match_percent': ((total_rows - no_match_count) / total_rows * 100) if total_rows > 0 else 0
+        }
+    
+    def get_preview(self, max_rows: int = 100, filter_type: str = "all") -> pd.DataFrame:
+        """Get a preview of changes without modifying the original data.
+        
+        Args:
+            max_rows: Maximum number of rows to return
+            filter_type: "all", "changed", "unmatched"
+        """
+        result = self.execute()
+        
+        if filter_type == "changed":
+            # Get rows that have at least one change
+            changed_rows = set(c.row_index for c in result.changes 
+                               if c.change_type in (ChangeType.NEW, ChangeType.CHANGED))
+            return result.result_df.loc[list(changed_rows)[:max_rows]]
+        
+        elif filter_type == "unmatched":
+            # Get rows with unmatched keys
+            unmatched_rows = set(c.row_index for c in result.changes 
+                                  if c.change_type == ChangeType.NO_MATCH)
+            return result.result_df.loc[list(unmatched_rows)[:max_rows]]
+        
+        return result.result_df.head(max_rows)
+    
+    def clear(self) -> None:
+        """Clear all data."""
+        self.base_source = None
+        self.data_sources.clear()
+        self.mapping_manager.clear()
