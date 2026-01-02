@@ -1,0 +1,12 @@
+﻿python : C:\Users\MIKE&KIGA\AppData\Local\Programs\Python\Python313\Lib\site-packages\openpyxl\styles\stylesheet.py:237
+: UserWarning: Workbook contains no default style, apply openpyxl's default
+At line:1 char:1
++ python -c "
++ ~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\MIKE&K...npyxl's default:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warn("Workbook contains no default style, apply openpyxl's default")
+BAZOWY: ['kod dostawcy', 'id oferty', 'asortyment', 'indeks mdm produktu', 'data aktualizacji', 'indeks mdm', 'ean', 'indeks gold', 'kod katalogowy', 'dostepnosc - typ', 'dostepnosc - dni', 'dostepnosc - ilosc', 'cena zakupu', 'cena sprzedazy', 'stawka VAT', 'Tytu艂.com', 'Marka', 'Producent', 'Widoczno艣膰', 'Dost臋pno艣膰', 'Indeks GOLD', 'Indeks mdm', 'EAN', 'Struktura GOLD', 'Striktura empik.com']
+
+ZRODLO: ['Typ', 'Indeks MDM', 'Tytu艂 .com (pe艂ny)', 'Marka', 'Producent(600)', 'Producent(2100)', 'Widoczno艣膰', 'Dost臋pno艣膰', 'Indeks Gold', 'Struktura towarowa GOLD', 'Struktura empik.com']

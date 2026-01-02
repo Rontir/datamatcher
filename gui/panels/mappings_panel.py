@@ -44,6 +44,13 @@ class MappingsPanel(ttk.LabelFrame):
         self.add_btn.pack(side=tk.LEFT, padx=(0, 5))
         ToolTip(self.add_btn, "Dodaj nowe mapowanie kolumn")
         
+        self.suggest_btn = ttk.Button(
+            toolbar, text="🪄 Sugestie",
+            command=self._show_suggestions
+        )
+        self.suggest_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(self.suggest_btn, "Automatycznie znajdź dopasowania kolumn")
+        
         self.remove_btn = ttk.Button(
             toolbar, text="🗑️ Usuń zaznaczone",
             command=self._remove_selected,
@@ -82,10 +89,58 @@ class MappingsPanel(ttk.LabelFrame):
         # Empty state
         self.empty_label = ttk.Label(
             self,
-            text="Brak mapowań.\nKliknij '+ Dodaj mapowanie' aby zdefiniować mapowania kolumn.",
+            text="Brak mapowań.\nKliknij '+ Dodaj mapowanie' lub '🪄 Sugestie' aby zdefiniować mapowania.",
             foreground='gray',
             justify=tk.CENTER
         )
+    
+    def _show_suggestions(self):
+        """Show smart mapping suggestions dialog."""
+        if not self.sources:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Brak źródeł",
+                "Najpierw dodaj źródła danych."
+            )
+            return
+        
+        if not self.target_columns:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Brak pliku bazowego",
+                "Najpierw wczytaj plik bazowy."
+            )
+            return
+        
+        from gui.dialogs.mapping_editor import SmartMappingSuggestionDialog
+        
+        # Use first source for suggestions
+        first_source_id = list(self.sources.keys())[0]
+        first_source_name = self.sources[first_source_id]
+        first_source_cols = self.source_columns.get(first_source_id, [])
+        
+        dialog = SmartMappingSuggestionDialog(
+            self.winfo_toplevel(),
+            source_name=first_source_name,
+            source_columns=first_source_cols,
+            target_columns=self.target_columns
+        )
+        
+        if dialog.result:
+            # Add selected mappings
+            for sug in dialog.result:
+                mapping = ColumnMapping(
+                    source_id=first_source_id,
+                    source_name=first_source_name,
+                    source_column=sug['source_column'],
+                    target_column=sug['target_column'],
+                    target_is_new=sug['target_is_new'],
+                    write_mode=WriteMode.OVERWRITE
+                )
+                self.mapping_manager.add(mapping)
+            
+            self._refresh_tree()
+            self._notify_change()
     
     def _add_mapping(self):
         """Open dialog to add new mapping."""
