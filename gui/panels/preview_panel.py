@@ -241,7 +241,11 @@ class PreviewPanel(ttk.LabelFrame):
         if self.limit_enabled_var.get():
             max_rows = self.limit_var.get()
         else:
-            max_rows = 999999  # No limit
+            max_rows = 2000  # Hard limit for GUI performance
+            
+        # Safety cap to prevent UI freeze
+        if max_rows > 2000:
+            max_rows = 2000
         
         # Build change lookup
         change_lookup: Dict[tuple, ChangeType] = {}
