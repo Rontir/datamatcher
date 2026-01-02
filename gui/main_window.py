@@ -362,7 +362,8 @@ class MainApplication:
         """Handle mapping changed - sync to DataMatcher."""
         # Sync mappings from panel to matcher
         self.matcher.mapping_manager = mapping_manager
-        self._execute_preview()
+        # Don't auto-execute preview to prevent lag
+        self._set_status("Mapowania zmienione - kliknij 'Podgląd danych' aby odświeżyć wyniki")
     
     def _update_mappings_options(self):
         """Update available options in mappings panel."""

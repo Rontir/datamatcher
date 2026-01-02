@@ -63,7 +63,8 @@ class ColoredTreeview(ttk.Treeview):
     def _setup_tags(self):
         """Configure tags for row coloring."""
         for tag, color in self.colors.items():
-            self.tag_configure(tag, background=color)
+            # Ensure text is readable (black) on light backgrounds
+            self.tag_configure(tag, background=color, foreground='black')
     
     def _setup_columns(self, columns: List[str], widths: Dict[str, int]):
         """Setup column headers and widths."""
