@@ -392,11 +392,14 @@ class MainApplication:
             if not self._validate_ready():
                 return
             
-            # Disable buttons during execution
-            self.execute_btn.config(state='disabled')
+            # Disable buttons and show loading state
+            self.execute_btn.config(state='disabled', text="⏳ Przetwarzanie...")
             self.save_btn.config(state='disabled')
+            self.preview_panel.refresh_btn.config(state='disabled', text="⏳ Przetwarzanie...")
+            
             self._set_status("Przetwarzanie... Proszę czekać")
             self._set_progress(0)
+            self.root.update_idletasks()  # Force immediate UI update
             
             # Apply current key options
             self.matcher.key_options = {
@@ -440,9 +443,15 @@ class MainApplication:
             import traceback
             traceback.print_exc()
             messagebox.showerror("Błąd krytyczny", f"Nie można uruchomić podglądu:\n{e}")
-            self.execute_btn.config(state='normal')
+            self._reset_buttons()
             self._set_status("Błąd uruchamiania")
-    
+
+    def _reset_buttons(self):
+        """Reset buttons to normal state."""
+        self.execute_btn.config(state='normal', text="▶ WYKONAJ (PODGLĄD)")
+        self.save_btn.config(state='normal')
+        self.preview_panel.refresh_btn.config(state='normal', text="▶ GENERUJ PODGLĄD (F5)")
+
     def _on_execute_complete(self, result, batch_filter):
         """Called when execution completes successfully."""
         self.current_result = result
@@ -457,14 +466,13 @@ class MainApplication:
         
         self._set_status(f"Podgląd gotowy - sprawdź wyniki i zapisz{filter_info}")
         self._set_progress(100)
-        self.execute_btn.config(state='normal')
-        self.save_btn.config(state='normal')
+        self._reset_buttons()
     
     def _on_execute_error(self, error_message):
         """Called when execution fails."""
         self._set_status(f"Błąd: {error_message}")
         self._set_progress(0)
-        self.execute_btn.config(state='normal')
+        self._reset_buttons()
         messagebox.showerror("Błąd", f"Nie można wygenerować podglądu:\n{error_message}")
     
     def _save_result(self):
