@@ -33,8 +33,10 @@ COLUMN_PATTERNS = {
     'dostepnosc': ['dostępność', 'dostepnosc', 'availability', 'stan', 'stock', 'ilość', 'ilosc', 'magazyn', 'qty', 'quantity', 'stan magazynowy', 'available', 'in stock', 'na stanie'],
     'widocznosc': ['widoczność', 'widocznosc', 'visibility', 'aktywny', 'active', 'status', 'czy widoczny', 'visible', 'opublikowany', 'published', 'enabled'],
     
-    # Categories
+    # Categories / Structures (EMPIK SPECIFIC)
     'struktura': ['struktura', 'category', 'kategoria', 'struktura gold', 'struktura towarowa', 'ścieżka', 'drzewo kategorii', 'path', 'category path', 'klasyfikacja', 'dział'],
+    'struktura_gold': ['struktura gold', 'struktura towarowa gold', 'gold structure', 'struktura towarowa', 'structure gold'],
+    'struktura_empik': ['struktura empik', 'struktura empik.com', 'struktura .com', 'kategoria empik', 'empik category', 'empik.com category'],
     'kategoria': ['kategoria', 'category', 'dział', 'sekcja', 'grupa', 'group', 'rodzaj', 'type', 'typ produktu'],
     
     # Descriptions
@@ -55,6 +57,12 @@ COLUMN_PATTERNS = {
     'kolor': ['kolor', 'color', 'colour', 'barwa'],
     'rozmiar': ['rozmiar', 'size', 'wymiar', 'format'],
     'material': ['materiał', 'material', 'tworzywo', 'surowiec'],
+    
+    # Empik specific
+    'autor': ['autor', 'author', 'twórca', 'artysta', 'writer', 'pisarz'],
+    'wydawca': ['wydawca', 'publisher', 'wydawnictwo', 'label', 'wytwórnia'],
+    'seria': ['seria', 'series', 'cykl', 'kolekcja', 'collection'],
+    'rok_wydania': ['rok wydania', 'year', 'data wydania', 'release date', 'publication year'],
 }
 
 

@@ -393,36 +393,69 @@ class MainApplication:
         if not self._validate_ready():
             return
         
-        try:
-            self._set_status("Generowanie podglądu...")
-            
-            # Apply current key options
-            self.matcher.key_options = {
-                'case_insensitive': self.case_insensitive_var.get(),
-                'strip_leading_zeros': self.strip_zeros_var.get()
-            }
-            
-            # Apply batch filter if set
-            batch_filter = getattr(self, 'batch_filter', None)
-            self.matcher.batch_filter = batch_filter
-            
-            result = self.matcher.execute()
-            self.current_result = result
-            
-            self.preview_panel.set_preview_data(result.result_df, result.changes)
-            self.preview_panel.update_stats(result.stats)
-            
-            # Build status message
-            filter_info = ""
-            if batch_filter and batch_filter.enabled:
-                filter_info = f" [Filtr: {batch_filter.get_description()}]"
-            
-            self._set_status(f"Podgląd gotowy - sprawdź wyniki i zapisz{filter_info}")
-            self.save_btn.config(state='normal')
-            
-        except Exception as e:
-            self._set_status(f"Błąd: {e}")
-            messagebox.showerror("Błąd", f"Nie można wygenerować podglądu:\n{e}")
+        # Disable buttons during execution
+        self.execute_btn.config(state='disabled')
+        self.save_btn.config(state='disabled')
+        self._set_status("Przetwarzanie... Proszę czekać")
+        self._set_progress(0)
+        
+        # Apply current key options
+        self.matcher.key_options = {
+            'case_insensitive': self.case_insensitive_var.get(),
+            'strip_leading_zeros': self.strip_zeros_var.get()
+        }
+        
+        # Apply batch filter if set
+        batch_filter = getattr(self, 'batch_filter', None)
+        self.matcher.batch_filter = batch_filter
+        
+        # Set up progress callback
+        def progress_callback(current, total, message):
+            percent = (current / total * 100) if total > 0 else 0
+            self._set_progress(percent)
+            self._set_status(f"Przetwarzanie: {current:,}/{total:,} wierszy ({percent:.0f}%)")
+            self.root.update_idletasks()  # Update UI without blocking
+        
+        self.matcher.set_progress_callback(progress_callback)
+        
+        # Run in thread to prevent freezing
+        def execute_thread():
+            try:
+                result = self.matcher.execute()
+                
+                # Schedule UI update on main thread
+                self.root.after(0, lambda: self._on_execute_complete(result, batch_filter))
+                
+            except Exception as e:
+                self.root.after(0, lambda: self._on_execute_error(str(e)))
+        
+        import threading
+        thread = threading.Thread(target=execute_thread, daemon=True)
+        thread.start()
+    
+    def _on_execute_complete(self, result, batch_filter):
+        """Called when execution completes successfully."""
+        self.current_result = result
+        
+        self.preview_panel.set_preview_data(result.result_df, result.changes)
+        self.preview_panel.update_stats(result.stats)
+        
+        # Build status message
+        filter_info = ""
+        if batch_filter and batch_filter.enabled:
+            filter_info = f" [Filtr: {batch_filter.get_description()}]"
+        
+        self._set_status(f"Podgląd gotowy - sprawdź wyniki i zapisz{filter_info}")
+        self._set_progress(100)
+        self.execute_btn.config(state='normal')
+        self.save_btn.config(state='normal')
+    
+    def _on_execute_error(self, error_message):
+        """Called when execution fails."""
+        self._set_status(f"Błąd: {error_message}")
+        self._set_progress(0)
+        self.execute_btn.config(state='normal')
+        messagebox.showerror("Błąd", f"Nie można wygenerować podglądu:\n{error_message}")
     
     def _save_result(self):
         """Save the current result to file."""
