@@ -86,8 +86,14 @@ class PreviewPanel(ttk.LabelFrame):
             command=lambda: self.search_var.set('')
         ).pack(side=tk.LEFT)
         
-        # Limit spinbox
-        ttk.Label(search_frame, text="│ Limit wierszy:").pack(side=tk.LEFT, padx=(15, 5))
+        # Limit checkbox + spinbox
+        self.limit_enabled_var = tk.BooleanVar(value=False)
+        self.limit_check = ttk.Checkbutton(
+            search_frame, text="Limit wierszy:",
+            variable=self.limit_enabled_var,
+            command=self._toggle_limit
+        )
+        self.limit_check.pack(side=tk.LEFT, padx=(15, 5))
         
         self.limit_var = tk.IntVar(value=500)
         self.limit_spinbox = ttk.Spinbox(
@@ -95,6 +101,7 @@ class PreviewPanel(ttk.LabelFrame):
             from_=50, to=10000, increment=50,
             textvariable=self.limit_var,
             width=8,
+            state='disabled',
             command=self._apply_filter
         )
         self.limit_spinbox.pack(side=tk.LEFT)
@@ -210,6 +217,14 @@ class PreviewPanel(ttk.LabelFrame):
         self._rebuild_tree()
         self._apply_filter()
     
+    def _toggle_limit(self):
+        """Toggle limit enabled state."""
+        if self.limit_enabled_var.get():
+            self.limit_spinbox.config(state='normal')
+        else:
+            self.limit_spinbox.config(state='disabled')
+        self._apply_filter()
+    
     def _apply_filter(self):
         """Apply current filter to preview."""
         if self.preview_data is None:
@@ -219,7 +234,12 @@ class PreviewPanel(ttk.LabelFrame):
         
         filter_type = self.filter_var.get()
         search_text = self.search_var.get().lower()
-        max_rows = self.limit_var.get()
+        
+        # Use limit only if enabled
+        if self.limit_enabled_var.get():
+            max_rows = self.limit_var.get()
+        else:
+            max_rows = 999999  # No limit
         
         # Build change lookup
         change_lookup: Dict[tuple, ChangeType] = {}
