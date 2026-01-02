@@ -284,8 +284,11 @@ class MainApplication:
         self._refresh_preview()
     
     def _on_mapping_changed(self, mapping_manager):
-        """Handle mapping changed."""
+        """Handle mapping changed - sync to DataMatcher."""
+        # Sync mappings from panel to matcher
+        self.matcher.mapping_manager = mapping_manager
         self._refresh_preview()
+
     
     def _update_mappings_options(self):
         """Update available options in mappings panel."""
