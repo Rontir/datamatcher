@@ -1,5 +1,6 @@
 """
 Mappings Panel - Panel for defining column mappings.
+Enhanced with Quick Mapping Bar for faster workflow.
 """
 import tkinter as tk
 from tkinter import ttk
@@ -8,6 +9,7 @@ from typing import Optional, Callable, List, Dict, Any
 from core.mapping import ColumnMapping, WriteMode, MappingManager
 from gui.widgets.tooltip import ToolTip
 from gui.widgets.colored_treeview import MappingsTreeview
+from gui.dialogs.mapping_editor import find_matching_column
 
 
 class MappingsPanel(ttk.LabelFrame):
@@ -28,21 +30,73 @@ class MappingsPanel(ttk.LabelFrame):
         self.source_columns: Dict[str, List[str]] = {}  # id -> columns
         self.target_columns: List[str] = []
         
+        # Mappings for quick bar
+        self.source_name_to_id: Dict[str, str] = {}
+        
         self._create_widgets()
     
     def _create_widgets(self):
         """Create all widgets."""
-        # Toolbar
-        toolbar = ttk.Frame(self)
-        toolbar.pack(fill=tk.X, pady=(0, 10))
         
-        self.add_btn = ttk.Button(
-            toolbar, text="➕ Dodaj mapowanie",
-            command=self._add_mapping,
+        # --- Quick Mapping Bar ---
+        quick_frame = ttk.LabelFrame(self, text="Szybkie dodawanie", padding=5)
+        quick_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Source
+        self.quick_source_var = tk.StringVar()
+        self.quick_source_combo = ttk.Combobox(
+            quick_frame, textvariable=self.quick_source_var,
+            state='readonly', width=20
+        )
+        self.quick_source_combo.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(self.quick_source_combo, "Wybierz źródło")
+        self.quick_source_combo.bind('<<ComboboxSelected>>', self._on_quick_source_changed)
+        
+        # Source Column
+        self.quick_source_col_var = tk.StringVar()
+        self.quick_source_col_combo = ttk.Combobox(
+            quick_frame, textvariable=self.quick_source_col_var,
+            state='readonly', width=25
+        )
+        self.quick_source_col_combo.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(self.quick_source_col_combo, "Kolumna źródłowa")
+        self.quick_source_col_combo.bind('<<ComboboxSelected>>', self._on_quick_source_col_changed)
+        
+        ttk.Label(quick_frame, text="→").pack(side=tk.LEFT, padx=2)
+        
+        # Target Column
+        self.quick_target_col_var = tk.StringVar()
+        self.quick_target_col_combo = ttk.Combobox(
+            quick_frame, textvariable=self.quick_target_col_var,
+            width=25
+        )
+        self.quick_target_col_combo.pack(side=tk.LEFT, padx=(5, 5))
+        ToolTip(self.quick_target_col_combo, "Kolumna docelowa")
+        
+        # Mode
+        self.quick_mode_var = tk.StringVar(value=WriteMode.get_display_name(WriteMode.FILL_EMPTY))
+        self.quick_mode_combo = ttk.Combobox(
+            quick_frame, textvariable=self.quick_mode_var,
+            state='readonly', width=15
+        )
+        modes = [(mode.value, WriteMode.get_display_name(mode)) for mode in WriteMode]
+        self.mode_display_to_value = {display: value for value, display in modes}
+        self.quick_mode_combo['values'] = [display for _, display in modes]
+        self.quick_mode_combo.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(self.quick_mode_combo, "Tryb zapisu")
+        
+        # Add Button
+        self.quick_add_btn = ttk.Button(
+            quick_frame, text="➕", width=3,
+            command=self._quick_add,
             style='Accent.TButton'
         )
-        self.add_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(self.add_btn, "Dodaj nowe mapowanie kolumn")
+        self.quick_add_btn.pack(side=tk.LEFT)
+        ToolTip(self.quick_add_btn, "Dodaj mapowanie")
+        
+        # --- Toolbar ---
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill=tk.X, pady=(0, 10))
         
         self.suggest_btn = ttk.Button(
             toolbar, text="🪄 Sugestie",
@@ -57,21 +111,17 @@ class MappingsPanel(ttk.LabelFrame):
             state='disabled'
         )
         self.remove_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(self.remove_btn, "Usuń zaznaczone mapowania (Delete)")
         
         self.up_btn = ttk.Button(toolbar, text="⬆️", command=self._move_up, width=3)
         self.up_btn.pack(side=tk.LEFT, padx=(10, 2))
-        ToolTip(self.up_btn, "Przesuń w górę (wyższy priorytet)")
         
         self.down_btn = ttk.Button(toolbar, text="⬇️", command=self._move_down, width=3)
         self.down_btn.pack(side=tk.LEFT)
-        ToolTip(self.down_btn, "Przesuń w dół (niższy priorytet)")
         
         self.undo_btn = ttk.Button(toolbar, text="↩️ Cofnij", command=self._undo)
         self.undo_btn.pack(side=tk.RIGHT)
-        ToolTip(self.undo_btn, "Cofnij ostatnią zmianę (Ctrl+Z)")
         
-        # Mappings treeview
+        # --- Treeview ---
         tree_frame = ttk.Frame(self)
         tree_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -89,49 +139,100 @@ class MappingsPanel(ttk.LabelFrame):
         # Empty state
         self.empty_label = ttk.Label(
             self,
-            text="Brak mapowań.\nKliknij '+ Dodaj mapowanie' lub '🪄 Sugestie' aby zdefiniować mapowania.",
+            text="Brak mapowań.\nUżyj paska 'Szybkie dodawanie' powyżej lub kliknij '🪄 Sugestie'.",
             foreground='gray',
             justify=tk.CENTER
         )
+    
+    def _on_quick_source_changed(self, event=None):
+        """Handle quick source selection."""
+        source_name = self.quick_source_var.get()
+        source_id = self.source_name_to_id.get(source_name)
+        
+        if source_id and source_id in self.source_columns:
+            cols = self.source_columns[source_id]
+            self.quick_source_col_combo['values'] = cols
+            if cols:
+                self.quick_source_col_var.set(cols[0])
+                self._on_quick_source_col_changed()
+    
+    def _on_quick_source_col_changed(self, event=None):
+        """Handle quick source column selection - auto-suggest target."""
+        source_col = self.quick_source_col_var.get()
+        if not source_col:
+            return
+            
+        # Try to find match
+        match = find_matching_column(source_col, self.target_columns)
+        if match:
+            self.quick_target_col_var.set(match)
+        else:
+            self.quick_target_col_var.set(source_col) # Default to same name (new column)
+    
+    def _quick_add(self):
+        """Add mapping from quick bar."""
+        source_name = self.quick_source_var.get()
+        source_id = self.source_name_to_id.get(source_name)
+        source_col = self.quick_source_col_var.get()
+        target_col = self.quick_target_col_var.get()
+        mode_display = self.quick_mode_var.get()
+        
+        if not all([source_id, source_col, target_col]):
+            return
+            
+        # Check if target is new
+        target_is_new = target_col not in self.target_columns
+        
+        mapping = ColumnMapping(
+            source_id=source_id,
+            source_name=source_name,
+            source_column=source_col,
+            target_column=target_col,
+            target_is_new=target_is_new,
+            write_mode=WriteMode(self.mode_display_to_value.get(mode_display, 'overwrite'))
+        )
+        
+        self.mapping_manager.add(mapping)
+        self._refresh_tree()
+        self._notify_change()
     
     def _show_suggestions(self):
         """Show smart mapping suggestions dialog."""
         if not self.sources:
             from tkinter import messagebox
-            messagebox.showwarning(
-                "Brak źródeł",
-                "Najpierw dodaj źródła danych."
-            )
+            messagebox.showwarning("Brak źródeł", "Najpierw dodaj źródła danych.")
             return
         
         if not self.target_columns:
             from tkinter import messagebox
-            messagebox.showwarning(
-                "Brak pliku bazowego",
-                "Najpierw wczytaj plik bazowy."
-            )
+            messagebox.showwarning("Brak pliku bazowego", "Najpierw wczytaj plik bazowy.")
             return
         
         from gui.dialogs.mapping_editor import SmartMappingSuggestionDialog
         
-        # Use first source for suggestions
-        first_source_id = list(self.sources.keys())[0]
-        first_source_name = self.sources[first_source_id]
-        first_source_cols = self.source_columns.get(first_source_id, [])
+        # Use first source for suggestions (or currently selected in quick bar)
+        source_name = self.quick_source_var.get()
+        if not source_name and self.sources:
+            source_name = list(self.sources.values())[0]
+            
+        source_id = self.source_name_to_id.get(source_name)
+        if not source_id:
+            return
+            
+        source_cols = self.source_columns.get(source_id, [])
         
         dialog = SmartMappingSuggestionDialog(
             self.winfo_toplevel(),
-            source_name=first_source_name,
-            source_columns=first_source_cols,
+            source_name=source_name,
+            source_columns=source_cols,
             target_columns=self.target_columns
         )
         
         if dialog.result:
-            # Add selected mappings
             for sug in dialog.result:
                 mapping = ColumnMapping(
-                    source_id=first_source_id,
-                    source_name=first_source_name,
+                    source_id=source_id,
+                    source_name=source_name,
                     source_column=sug['source_column'],
                     target_column=sug['target_column'],
                     target_is_new=sug['target_is_new'],
@@ -142,32 +243,6 @@ class MappingsPanel(ttk.LabelFrame):
             self._refresh_tree()
             self._notify_change()
     
-    def _add_mapping(self):
-        """Open dialog to add new mapping."""
-        if not self.sources:
-            from tkinter import messagebox
-            messagebox.showwarning(
-                "Brak źródeł",
-                "Najpierw dodaj źródła danych."
-            )
-            return
-        
-        from gui.dialogs.mapping_editor import MappingEditorDialog
-        
-        dialog = MappingEditorDialog(
-            self.winfo_toplevel(),
-            sources=self.sources,
-            source_columns=self.source_columns,
-            target_columns=self.target_columns,
-            title="Nowe mapowanie"
-        )
-        
-        if dialog.result:
-            mapping = dialog.result
-            self.mapping_manager.add(mapping)
-            self._refresh_tree()
-            self._notify_change()
-    
     def _remove_selected(self):
         """Remove selected mappings."""
         selected = self.tree.get_selected_items()
@@ -175,10 +250,8 @@ class MappingsPanel(ttk.LabelFrame):
             return
         
         for item in selected:
-            # Get mapping ID from tree item
             values = self.tree.get_row_data(item)
             if values:
-                # Find mapping by index
                 idx = int(values[0]) - 1
                 if 0 <= idx < len(self.mapping_manager.mappings):
                     mapping = self.mapping_manager.mappings[idx]
@@ -192,7 +265,6 @@ class MappingsPanel(ttk.LabelFrame):
         selected = self.tree.get_selected_items()
         if not selected:
             return
-        
         values = self.tree.get_row_data(selected[0])
         if values:
             idx = int(values[0]) - 1
@@ -207,7 +279,6 @@ class MappingsPanel(ttk.LabelFrame):
         selected = self.tree.get_selected_items()
         if not selected:
             return
-        
         values = self.tree.get_row_data(selected[0])
         if values:
             idx = int(values[0]) - 1
@@ -299,10 +370,21 @@ class MappingsPanel(ttk.LabelFrame):
         """Update available sources."""
         self.sources = sources
         self.source_columns = source_columns
+        self.source_name_to_id = {name: sid for sid, name in sources.items()}
+        
+        # Update quick bar combos
+        self.quick_source_combo['values'] = list(sources.values())
+        if sources:
+            # Select first source if none selected
+            if not self.quick_source_var.get():
+                first_source = list(sources.values())[0]
+                self.quick_source_var.set(first_source)
+                self._on_quick_source_changed()
     
     def set_target_columns(self, columns: List[str]):
         """Update available target columns."""
         self.target_columns = columns
+        self.quick_target_col_combo['values'] = columns + ['+ NOWA KOLUMNA...']
     
     def get_mapping_manager(self) -> MappingManager:
         """Get the mapping manager."""
@@ -319,4 +401,7 @@ class MappingsPanel(ttk.LabelFrame):
         self.sources.clear()
         self.source_columns.clear()
         self.target_columns.clear()
+        self.quick_source_combo.set('')
+        self.quick_source_col_combo.set('')
+        self.quick_target_col_combo.set('')
         self._refresh_tree()

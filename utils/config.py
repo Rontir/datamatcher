@@ -63,6 +63,9 @@ class Config:
     # Paths
     last_directory: str = ""
     
+    # Automation
+    file_patterns: List[Dict[str, str]] = field(default_factory=list)  # [{"pattern": "regex", "profile": "path"}]
+    
     @classmethod
     def load(cls) -> 'Config':
         """Load configuration from file."""
@@ -146,6 +149,21 @@ class Config:
             'treat_empty_as_null': self.treat_empty_as_null,
             'duplicate_strategy': self.duplicate_strategy
         }
+    
+    def match_profile(self, filename: str) -> Optional[str]:
+        """Find a matching profile for a filename."""
+        import re
+        for entry in self.file_patterns:
+            pattern = entry.get('pattern')
+            profile_path = entry.get('profile')
+            if pattern and profile_path:
+                try:
+                    if re.search(pattern, filename, re.IGNORECASE):
+                        if Path(profile_path).exists():
+                            return profile_path
+                except re.error:
+                    continue
+        return None
 
 
 @dataclass

@@ -21,10 +21,12 @@ from gui.panels.sources_panel import SourcesPanel
 from gui.panels.mappings_panel import MappingsPanel
 from gui.panels.preview_panel import PreviewPanel
 from gui.dialogs.report_viewer import ReportViewerDialog
+from gui.dialogs.mapping_editor import SmartMappingSuggestionDialog, get_all_column_suggestions
 
 from core.data_source import DataSource
 from core.matcher import DataMatcher
 from core.reporter import Reporter
+from core.mapping import ColumnMapping, WriteMode
 from utils.config import Config, Profile, list_profiles
 from utils.file_handlers import save_excel, create_backup
 
@@ -80,7 +82,7 @@ class MainApplication:
         file_menu.add_command(label="Wczytaj plik bazowy...", command=self._load_base_file, accelerator="Ctrl+O")
         file_menu.add_command(label="Dodaj źródło...", command=self._add_source, accelerator="Ctrl+Shift+O")
         file_menu.add_separator()
-        file_menu.add_command(label="Wykonaj i zapisz...", command=self._execute_and_save, accelerator="Ctrl+S")
+        file_menu.add_command(label="Zapisz wynik...", command=self._save_result, accelerator="Ctrl+S")
         file_menu.add_separator()
         file_menu.add_command(label="Wyjście", command=self._on_close)
         
@@ -101,7 +103,7 @@ class MainApplication:
         tools_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Narzędzia", menu=tools_menu)
         
-        tools_menu.add_command(label="Odśwież podgląd", command=self._refresh_preview, accelerator="F5")
+        tools_menu.add_command(label="Odśwież podgląd", command=self._execute_preview, accelerator="F5")
         tools_menu.add_command(label="Cofnij mapowanie", command=self._undo_mapping, accelerator="Ctrl+Z")
         tools_menu.add_separator()
         tools_menu.add_command(label="Nowa sesja", command=self._new_session)
@@ -177,7 +179,7 @@ class MainApplication:
         # Bottom section (preview)
         self.preview_panel = PreviewPanel(self.main_frame)
         self.preview_panel.pack(fill=tk.BOTH, expand=True)
-        self.preview_panel.set_refresh_callback(self._refresh_preview)
+        self.preview_panel.set_refresh_callback(self._execute_preview)
         
         # Action buttons
         btn_frame = ttk.Frame(self.main_frame)
@@ -190,22 +192,41 @@ class MainApplication:
         ).pack(side=tk.LEFT)
         
         ttk.Button(
-            btn_frame, text="❌ Anuluj",
+            btn_frame, text="❌ Nowa sesja",
             command=self._new_session,
             width=15
         ).pack(side=tk.RIGHT, padx=(10, 0))
         
+        # Save button (initially disabled)
+        if HAS_TTKBOOTSTRAP:
+            self.save_btn = ttk.Button(
+                btn_frame, text="💾 ZAPISZ WYNIK",
+                command=self._save_result,
+                width=20,
+                bootstyle="success",
+                state='disabled'
+            )
+        else:
+            self.save_btn = ttk.Button(
+                btn_frame, text="💾 ZAPISZ WYNIK",
+                command=self._save_result,
+                width=20,
+                state='disabled'
+            )
+        self.save_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # Execute button
         if HAS_TTKBOOTSTRAP:
             self.execute_btn = ttk.Button(
-                btn_frame, text="✅ WYKONAJ I ZAPISZ",
-                command=self._execute_and_save,
+                btn_frame, text="▶ WYKONAJ (PODGLĄD)",
+                command=self._execute_preview,
                 width=25,
-                bootstyle="success"
+                bootstyle="primary"
             )
         else:
             self.execute_btn = ttk.Button(
-                btn_frame, text="✅ WYKONAJ I ZAPISZ",
-                command=self._execute_and_save,
+                btn_frame, text="▶ WYKONAJ (PODGLĄD)",
+                command=self._execute_preview,
                 width=25
             )
         self.execute_btn.pack(side=tk.RIGHT)
@@ -235,11 +256,11 @@ class MainApplication:
         """Bind keyboard shortcuts."""
         self.root.bind('<Control-o>', lambda e: self._load_base_file())
         self.root.bind('<Control-O>', lambda e: self._add_source())
-        self.root.bind('<Control-s>', lambda e: self._execute_and_save())
+        self.root.bind('<Control-s>', lambda e: self._save_result())
         self.root.bind('<Control-S>', lambda e: self._save_profile())
         self.root.bind('<Control-l>', lambda e: self._load_profile())
         self.root.bind('<Control-z>', lambda e: self._undo_mapping())
-        self.root.bind('<F5>', lambda e: self._refresh_preview())
+        self.root.bind('<F5>', lambda e: self._execute_preview())
     
     def _set_status(self, message: str):
         """Update status bar message."""
@@ -258,11 +279,25 @@ class MainApplication:
         self._update_mappings_options()
         self._set_status(f"Wczytano: {source.filename}")
         self.config.add_recent_base_file(source.filepath)
+        
+        # Check for profile match
+        self._check_profile_match(source.filename)
+    
+    def _check_profile_match(self, filename: str):
+        """Check if a profile matches the filename and suggest loading it."""
+        profile_path = self.config.match_profile(filename)
+        if profile_path:
+            if messagebox.askyesno(
+                "Wykryto profil",
+                f"Wykryto pasujący profil dla pliku '{filename}'.\n"
+                f"Czy chcesz wczytać profil '{Path(profile_path).stem}'?"
+            ):
+                self._load_profile_from_path(profile_path)
     
     def _on_base_key_changed(self, source: DataSource):
         """Handle base key column changed."""
         self._update_match_stats()
-        self._refresh_preview()
+        self._execute_preview()
     
     def _on_source_added(self, source: DataSource):
         """Handle source added."""
@@ -271,6 +306,44 @@ class MainApplication:
         self._update_match_stats()
         self._set_status(f"Dodano źródło: {source.filename}")
         self.config.add_recent_source_file(source.filepath)
+        
+        # Auto-suggest mappings if base file is loaded
+        if self.matcher.base_source and self.matcher.base_source.key_column:
+            self._auto_suggest_mappings(source)
+    
+    def _auto_suggest_mappings(self, source: DataSource):
+        """Automatically suggest mappings for new source."""
+        target_cols = self.matcher.base_source.get_columns()
+        source_cols = source.get_columns()
+        
+        suggestions = get_all_column_suggestions(source_cols, target_cols)
+        
+        # Count high confidence matches
+        high_conf = sum(1 for s in suggestions if s['confidence'] == 'high')
+        
+        if high_conf > 0:
+            # Show dialog
+            dialog = SmartMappingSuggestionDialog(
+                self.root,
+                source_name=source.filename,
+                source_columns=source_cols,
+                target_columns=target_cols
+            )
+            
+            if dialog.result:
+                for sug in dialog.result:
+                    mapping = ColumnMapping(
+                        source_id=source.id,
+                        source_name=source.filename,
+                        source_column=sug['source_column'],
+                        target_column=sug['target_column'],
+                        target_is_new=sug['target_is_new'],
+                        write_mode=WriteMode.OVERWRITE
+                    )
+                    self.matcher.mapping_manager.add(mapping)
+                
+                self.mappings_panel._refresh_tree()
+                self._execute_preview()
     
     def _on_source_removed(self, source: DataSource):
         """Handle source removed."""
@@ -281,14 +354,13 @@ class MainApplication:
     def _on_source_key_changed(self, source: DataSource):
         """Handle source key changed."""
         self._update_match_stats()
-        self._refresh_preview()
+        self._execute_preview()
     
     def _on_mapping_changed(self, mapping_manager):
         """Handle mapping changed - sync to DataMatcher."""
         # Sync mappings from panel to matcher
         self.matcher.mapping_manager = mapping_manager
-        self._refresh_preview()
-
+        self._execute_preview()
     
     def _update_mappings_options(self):
         """Update available options in mappings panel."""
@@ -311,8 +383,8 @@ class MainApplication:
         
         self.sources_panel.update_match_stats(base_keys)
     
-    def _refresh_preview(self):
-        """Refresh the preview panel."""
+    def _execute_preview(self):
+        """Execute mappings and update preview (without saving)."""
         if not self._validate_ready():
             return
         
@@ -331,11 +403,56 @@ class MainApplication:
             self.preview_panel.set_preview_data(result.result_df, result.changes)
             self.preview_panel.update_stats(result.stats)
             
-            self._set_status("Podgląd gotowy")
+            self._set_status("Podgląd gotowy - sprawdź wyniki i zapisz")
+            self.save_btn.config(state='normal')
             
         except Exception as e:
             self._set_status(f"Błąd: {e}")
             messagebox.showerror("Błąd", f"Nie można wygenerować podglądu:\n{e}")
+    
+    def _save_result(self):
+        """Save the current result to file."""
+        if not self.current_result:
+            messagebox.showwarning("Brak danych", "Najpierw wykonaj podgląd.")
+            return
+        
+        # Ask for output file
+        default_name = Path(self.matcher.base_source.filepath).stem + self.config.output_suffix + ".xlsx"
+        
+        filepath = filedialog.asksaveasfilename(
+            title="Zapisz wynik jako",
+            defaultextension=".xlsx",
+            initialfile=default_name,
+            filetypes=[
+                ("Pliki Excel", "*.xlsx"),
+                ("Wszystkie pliki", "*.*")
+            ]
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            self._set_status("Zapisywanie...")
+            self._set_progress(0)
+            
+            # Create backup if enabled
+            if self.backup_var.get() and Path(self.matcher.base_source.filepath).exists():
+                backup_path = create_backup(self.matcher.base_source.filepath)
+                self._set_status(f"Utworzono backup: {Path(backup_path).name}")
+            
+            # Save
+            save_excel(self.current_result.result_df, filepath)
+            
+            self._set_progress(100)
+            self._set_status(f"Zapisano: {Path(filepath).name}")
+            
+            # Show report
+            self._show_execution_report(self.current_result, filepath)
+            
+        except Exception as e:
+            self._set_status(f"Błąd zapisu: {e}")
+            messagebox.showerror("Błąd", f"Nie można zapisać:\n{e}")
     
     def _validate_ready(self) -> bool:
         """Check if ready to execute."""
@@ -357,64 +474,6 @@ class MainApplication:
     def _add_source(self):
         """Trigger add source."""
         self.sources_panel._add_source()
-    
-    def _execute_and_save(self):
-        """Execute mappings and save result."""
-        if not self._validate_ready():
-            messagebox.showwarning(
-                "Brak danych",
-                "Wczytaj plik bazowy, dodaj źródła i zdefiniuj mapowania."
-            )
-            return
-        
-        # Ask for output file
-        default_name = Path(self.matcher.base_source.filepath).stem + "_matched.xlsx"
-        
-        filepath = filedialog.asksaveasfilename(
-            title="Zapisz wynik jako",
-            defaultextension=".xlsx",
-            initialfile=default_name,
-            filetypes=[
-                ("Pliki Excel", "*.xlsx"),
-                ("Wszystkie pliki", "*.*")
-            ]
-        )
-        
-        if not filepath:
-            return
-        
-        try:
-            self._set_status("Wykonywanie...")
-            self._set_progress(0)
-            
-            # Create backup if enabled
-            if self.backup_var.get() and Path(self.matcher.base_source.filepath).exists():
-                backup_path = create_backup(self.matcher.base_source.filepath)
-                self._set_status(f"Utworzono backup: {Path(backup_path).name}")
-            
-            # Execute
-            self.matcher.set_progress_callback(
-                lambda cur, tot, msg: (
-                    self._set_status(msg),
-                    self._set_progress(cur / tot * 100 if tot > 0 else 0)
-                )
-            )
-            
-            result = self.matcher.execute()
-            self.current_result = result
-            
-            # Save
-            save_excel(result.result_df, filepath)
-            
-            self._set_progress(100)
-            self._set_status(f"Zapisano: {Path(filepath).name}")
-            
-            # Show report
-            self._show_execution_report(result, filepath)
-            
-        except Exception as e:
-            self._set_status(f"Błąd: {e}")
-            messagebox.showerror("Błąd", f"Nie można wykonać:\n{e}")
     
     def _show_execution_report(self, result, output_filepath: str):
         """Show execution report dialog."""
@@ -572,6 +631,7 @@ class MainApplication:
             self.mappings_panel.reset()
             self.preview_panel.clear()
             self.current_result = None
+            self.save_btn.config(state='disabled')
             self._set_status("Nowa sesja")
     
     def _change_theme(self, theme: str):
@@ -588,7 +648,7 @@ class MainApplication:
             "DataMatcher Pro\n\n"
             "Zaawansowane narzędzie do łączenia danych\n"
             "z plików Excel na podstawie kluczy.\n\n"
-            "Wersja: 1.0.0\n"
+            "Wersja: 1.1.0\n"
             "© 2025"
         )
     

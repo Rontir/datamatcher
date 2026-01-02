@@ -1,35 +1,37 @@
 """
 Mapping Editor Dialog - Dialog for creating/editing column mappings.
-Enhanced with smart auto-suggestion of matching columns.
+Enhanced with smart auto-suggestion of matching columns using fuzzy logic and synonyms.
 """
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 import re
+import difflib
 
 from core.mapping import ColumnMapping, WriteMode
 from core.transformer import get_transform_names
 
 
-# Patterns for matching similar column names
+# Patterns for matching similar column names (Synonyms)
 COLUMN_PATTERNS = {
     # Key columns
-    'mdm': ['indeks mdm', 'mdm', 'indeks_mdm', 'mdm_index', 'index mdm', 'indeks mdm produktu'],
-    'ean': ['ean', 'kod ean', 'ean13', 'gtin', 'barcode'],
-    'sku': ['sku', 'kod', 'kod produktu', 'product_code', 'kod katalogowy'],
-    'gold': ['indeks gold', 'gold', 'index gold', 'gold_index'],
+    'mdm': ['indeks mdm', 'mdm', 'indeks_mdm', 'mdm_index', 'index mdm', 'indeks mdm produktu', 'mdm id', 'id produktu'],
+    'ean': ['ean', 'kod ean', 'ean13', 'gtin', 'barcode', 'kod kreskowy'],
+    'sku': ['sku', 'kod', 'kod produktu', 'product_code', 'kod katalogowy', 'symbol', 'nr katalogowy'],
+    'gold': ['indeks gold', 'gold', 'index gold', 'gold_index', 'kod gold'],
     
     # Common data columns
-    'nazwa': ['nazwa', 'tytuł', 'tytul', 'name', 'title', 'nazwa produktu', 'tytuł .com', 'tytuł.com'],
-    'marka': ['marka', 'brand', 'marka produktu'],
-    'producent': ['producent', 'manufacturer', 'producer'],
-    'cena': ['cena', 'price', 'cena zakupu', 'cena sprzedaży', 'cena netto', 'cena brutto'],
-    'dostepnosc': ['dostępność', 'dostepnosc', 'availability', 'stan', 'stock'],
-    'widocznosc': ['widoczność', 'widocznosc', 'visibility', 'aktywny', 'active'],
-    'struktura': ['struktura', 'category', 'kategoria', 'struktura gold', 'struktura towarowa'],
-    'opis': ['opis', 'description', 'opis produktu', 'opis krótki', 'opis pełny'],
-    'waga': ['waga', 'weight', 'masa'],
-    'wymiary': ['wymiary', 'dimensions', 'wysokość', 'szerokość', 'głębokość'],
+    'nazwa': ['nazwa', 'tytuł', 'tytul', 'name', 'title', 'nazwa produktu', 'tytuł .com', 'tytuł.com', 'opis krótki', 'product name'],
+    'marka': ['marka', 'brand', 'marka produktu', 'producent', 'manufacturer'],
+    'producent': ['producent', 'manufacturer', 'producer', 'marka', 'dostawca'],
+    'cena': ['cena', 'price', 'cena zakupu', 'cena sprzedaży', 'cena netto', 'cena brutto', 'koszt', 'wartość'],
+    'dostepnosc': ['dostępność', 'dostepnosc', 'availability', 'stan', 'stock', 'ilość', 'ilosc', 'magazyn'],
+    'widocznosc': ['widoczność', 'widocznosc', 'visibility', 'aktywny', 'active', 'status', 'czy widoczny'],
+    'struktura': ['struktura', 'category', 'kategoria', 'struktura gold', 'struktura towarowa', 'ścieżka', 'drzewo kategorii'],
+    'opis': ['opis', 'description', 'opis produktu', 'opis pełny', 'szczegóły', 'opis marketingowy'],
+    'waga': ['waga', 'weight', 'masa', 'ciężar'],
+    'wymiary': ['wymiary', 'dimensions', 'wysokość', 'szerokość', 'głębokość', 'rozmiar', 'gabaryt'],
+    'vat': ['vat', 'stawka vat', 'podatek', 'tax'],
 }
 
 
@@ -45,6 +47,11 @@ def normalize_column_name(name: str) -> str:
     return s.strip()
 
 
+def calculate_similarity(s1: str, s2: str) -> float:
+    """Calculate similarity ratio between two strings."""
+    return difflib.SequenceMatcher(None, s1, s2).ratio()
+
+
 def find_matching_column(source_col: str, target_columns: List[str]) -> Optional[str]:
     """
     Find best matching target column for a source column.
@@ -52,33 +59,48 @@ def find_matching_column(source_col: str, target_columns: List[str]) -> Optional
     """
     source_norm = normalize_column_name(source_col)
     
-    # Direct match first
+    # 1. Direct match
     for target in target_columns:
         if normalize_column_name(target) == source_norm:
             return target
     
-    # Pattern-based matching
+    # 2. Pattern-based matching (Synonyms)
     source_pattern = None
     for pattern_key, variants in COLUMN_PATTERNS.items():
         for variant in variants:
-            if variant in source_norm or source_norm in variant:
+            if variant == source_norm or variant in source_norm:
                 source_pattern = pattern_key
                 break
         if source_pattern:
             break
     
     if source_pattern:
+        # Look for target with same pattern
         for target in target_columns:
             target_norm = normalize_column_name(target)
             for variant in COLUMN_PATTERNS[source_pattern]:
-                if variant in target_norm or target_norm in variant:
+                if variant in target_norm:
                     return target
     
-    # Partial match - at least one significant word matches
+    # 3. Fuzzy matching
+    best_match = None
+    best_score = 0.0
+    
+    for target in target_columns:
+        target_norm = normalize_column_name(target)
+        score = calculate_similarity(source_norm, target_norm)
+        
+        if score > best_score:
+            best_score = score
+            best_match = target
+            
+    if best_score > 0.85:  # High confidence fuzzy match
+        return best_match
+        
+    # 4. Partial word match (fallback)
     source_words = set(source_norm.split())
     for target in target_columns:
         target_words = set(normalize_column_name(target).split())
-        # Find meaningful matches (words longer than 2 chars)
         common = source_words & target_words
         meaningful = [w for w in common if len(w) > 2]
         if meaningful:
@@ -96,23 +118,44 @@ def get_all_column_suggestions(source_columns: List[str], target_columns: List[s
     used_targets = set()
     
     for source_col in source_columns:
+        source_norm = normalize_column_name(source_col)
+        
+        # Try to find match
         match = find_matching_column(source_col, [t for t in target_columns if t not in used_targets])
+        
         if match:
+            match_norm = normalize_column_name(match)
+            
+            # Determine confidence
+            confidence = 'low'
+            if source_norm == match_norm:
+                confidence = 'high'
+            elif calculate_similarity(source_norm, match_norm) > 0.8:
+                confidence = 'high'
+            elif any(p in source_norm and p in match_norm for p in COLUMN_PATTERNS):
+                confidence = 'medium'
+            else:
+                confidence = 'medium'
+                
             suggestions.append({
                 'source_column': source_col,
                 'target_column': match,
                 'target_is_new': False,
-                'confidence': 'high' if normalize_column_name(source_col) == normalize_column_name(match) else 'medium'
+                'confidence': confidence
             })
             used_targets.add(match)
         else:
-            # Suggest creating new column with same name
+            # Suggest creating new column
             suggestions.append({
                 'source_column': source_col,
                 'target_column': source_col,
                 'target_is_new': True,
                 'confidence': 'low'
             })
+    
+    # Sort by confidence (High -> Medium -> Low)
+    confidence_order = {'high': 0, 'medium': 1, 'low': 2}
+    suggestions.sort(key=lambda x: confidence_order[x['confidence']])
     
     return suggestions
 
