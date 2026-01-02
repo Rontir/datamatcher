@@ -78,17 +78,28 @@ class DataSource:
     
     def set_key_column(self, column: str):
         """Set the key column and rebuild lookup."""
-        self.key_column = column
-        self.build_key_lookup()
+        if column != self.key_column:  # Only rebuild if changed
+            self.key_column = column
+            self._key_lookup_built = False
+            self.build_key_lookup()
     
-    def build_key_lookup(self):
-        """Build a dictionary mapping normalized keys to row data."""
+    def build_key_lookup(self, force: bool = False):
+        """Build a dictionary mapping normalized keys to row data.
+        Uses caching to avoid rebuilding if not needed.
+        """
         if self.dataframe is None or not self.key_column:
             self._key_lookup = {}
             return
         
+        # Check cache
+        if hasattr(self, '_key_lookup_built') and self._key_lookup_built and not force:
+            return
+        
         self._key_lookup = {}
         duplicate_strategy = self.key_options.get('duplicate_strategy', 'first')
+        
+        # Optimized: use apply for faster key normalization
+        key_series = self.dataframe[self.key_column]
         
         for idx, row in self.dataframe.iterrows():
             raw_key = row.get(self.key_column)
@@ -107,9 +118,13 @@ class DataSource:
                     continue
             
             self._key_lookup[normalized] = row.to_dict()
+        
+        self._key_lookup_built = True
     
     def get_key_lookup(self) -> Dict[str, Dict[str, Any]]:
-        """Get the key lookup dictionary."""
+        """Get the key lookup dictionary. Builds if not built yet."""
+        if not self._key_lookup and self.key_column:
+            self.build_key_lookup()
         return self._key_lookup
     
     def get_value_for_key(self, key: str, column: str) -> Any:

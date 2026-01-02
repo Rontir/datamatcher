@@ -198,7 +198,7 @@ class DataMatcher:
         
         # Process each row
         for idx, (row_idx, row) in enumerate(result_df.iterrows()):
-            if idx % 100 == 0:
+            if idx % 500 == 0:  # Report progress every 500 rows for performance
                 self._report_progress(idx, total_rows, f"Przetwarzanie wiersza {idx}/{total_rows}")
             
             raw_key = row[base_key_col]
