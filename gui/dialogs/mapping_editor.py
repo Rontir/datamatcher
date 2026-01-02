@@ -12,26 +12,49 @@ from core.mapping import ColumnMapping, WriteMode
 from core.transformer import get_transform_names
 
 
-# Patterns for matching similar column names (Synonyms)
+# Patterns for matching similar column names (Synonyms) - EXTENDED
 COLUMN_PATTERNS = {
     # Key columns
-    'mdm': ['indeks mdm', 'mdm', 'indeks_mdm', 'mdm_index', 'index mdm', 'indeks mdm produktu', 'mdm id', 'id produktu'],
-    'ean': ['ean', 'kod ean', 'ean13', 'gtin', 'barcode', 'kod kreskowy'],
-    'sku': ['sku', 'kod', 'kod produktu', 'product_code', 'kod katalogowy', 'symbol', 'nr katalogowy'],
-    'gold': ['indeks gold', 'gold', 'index gold', 'gold_index', 'kod gold'],
+    'mdm': ['indeks mdm', 'mdm', 'indeks_mdm', 'mdm_index', 'index mdm', 'indeks mdm produktu', 'mdm id', 'id produktu', 'product id', 'id'],
+    'ean': ['ean', 'kod ean', 'ean13', 'ean 13', 'gtin', 'barcode', 'kod kreskowy', 'ean code', 'upc'],
+    'sku': ['sku', 'kod', 'kod produktu', 'product_code', 'kod katalogowy', 'symbol', 'nr katalogowy', 'artykul', 'artikul', 'item_code'],
+    'gold': ['indeks gold', 'gold', 'index gold', 'gold_index', 'kod gold', 'gold code'],
     
-    # Common data columns
-    'nazwa': ['nazwa', 'tytuł', 'tytul', 'name', 'title', 'nazwa produktu', 'tytuł .com', 'tytuł.com', 'opis krótki', 'product name'],
-    'marka': ['marka', 'brand', 'marka produktu', 'producent', 'manufacturer'],
-    'producent': ['producent', 'manufacturer', 'producer', 'marka', 'dostawca'],
-    'cena': ['cena', 'price', 'cena zakupu', 'cena sprzedaży', 'cena netto', 'cena brutto', 'koszt', 'wartość'],
-    'dostepnosc': ['dostępność', 'dostepnosc', 'availability', 'stan', 'stock', 'ilość', 'ilosc', 'magazyn'],
-    'widocznosc': ['widoczność', 'widocznosc', 'visibility', 'aktywny', 'active', 'status', 'czy widoczny'],
-    'struktura': ['struktura', 'category', 'kategoria', 'struktura gold', 'struktura towarowa', 'ścieżka', 'drzewo kategorii'],
-    'opis': ['opis', 'description', 'opis produktu', 'opis pełny', 'szczegóły', 'opis marketingowy'],
-    'waga': ['waga', 'weight', 'masa', 'ciężar'],
-    'wymiary': ['wymiary', 'dimensions', 'wysokość', 'szerokość', 'głębokość', 'rozmiar', 'gabaryt'],
-    'vat': ['vat', 'stawka vat', 'podatek', 'tax'],
+    # Names and titles
+    'nazwa': ['nazwa', 'tytuł', 'tytul', 'name', 'title', 'nazwa produktu', 'tytuł .com', 'tytuł.com', 'opis krótki', 'product name', 'nazwa artykułu', 'nazwa towaru', 'tytul produktu', 'product title', 'nazwa wyswietlana', 'display name'],
+    'marka': ['marka', 'brand', 'marka produktu', 'producent', 'manufacturer', 'brand name', 'firma'],
+    'producent': ['producent', 'manufacturer', 'producer', 'marka', 'dostawca', 'supplier', 'vendor'],
+    
+    # Pricing
+    'cena': ['cena', 'price', 'cena zakupu', 'cena sprzedaży', 'cena netto', 'cena brutto', 'koszt', 'wartość', 'cena detal', 'cena hurt', 'cena jednostkowa', 'unit price', 'cost', 'cena katalogowa', 'msrp', 'rrp'],
+    'cena_promocyjna': ['cena promocyjna', 'promo price', 'sale price', 'cena wyprzedażowa', 'cena przeceniona', 'cena specjalna'],
+    
+    # Availability
+    'dostepnosc': ['dostępność', 'dostepnosc', 'availability', 'stan', 'stock', 'ilość', 'ilosc', 'magazyn', 'qty', 'quantity', 'stan magazynowy', 'available', 'in stock', 'na stanie'],
+    'widocznosc': ['widoczność', 'widocznosc', 'visibility', 'aktywny', 'active', 'status', 'czy widoczny', 'visible', 'opublikowany', 'published', 'enabled'],
+    
+    # Categories
+    'struktura': ['struktura', 'category', 'kategoria', 'struktura gold', 'struktura towarowa', 'ścieżka', 'drzewo kategorii', 'path', 'category path', 'klasyfikacja', 'dział'],
+    'kategoria': ['kategoria', 'category', 'dział', 'sekcja', 'grupa', 'group', 'rodzaj', 'type', 'typ produktu'],
+    
+    # Descriptions
+    'opis': ['opis', 'description', 'opis produktu', 'opis pełny', 'szczegóły', 'opis marketingowy', 'long description', 'opis długi', 'tresc', 'content', 'opis szczegółowy', 'opis techniczny'],
+    'opis_krotki': ['opis krótki', 'short description', 'skrócony opis', 'lead', 'zajawka', 'podsumowanie', 'summary'],
+    
+    # Physical attributes
+    'waga': ['waga', 'weight', 'masa', 'ciężar', 'waga brutto', 'waga netto', 'gross weight', 'net weight'],
+    'wymiary': ['wymiary', 'dimensions', 'wysokość', 'szerokość', 'głębokość', 'rozmiar', 'gabaryt', 'size', 'height', 'width', 'depth', 'length', 'długość'],
+    
+    # Tax
+    'vat': ['vat', 'stawka vat', 'podatek', 'tax', 'tax rate', 'stawka podatku', 'vat rate'],
+    
+    # Images
+    'zdjecie': ['zdjęcie', 'zdjecie', 'image', 'obrazek', 'foto', 'photo', 'grafika', 'picture', 'img', 'url zdjęcia', 'image url', 'main image', 'zdjecie glowne'],
+    
+    # Attributes
+    'kolor': ['kolor', 'color', 'colour', 'barwa'],
+    'rozmiar': ['rozmiar', 'size', 'wymiar', 'format'],
+    'material': ['materiał', 'material', 'tworzywo', 'surowiec'],
 }
 
 
@@ -56,19 +79,21 @@ def find_matching_column(source_col: str, target_columns: List[str]) -> Optional
     """
     Find best matching target column for a source column.
     Returns the matching target column name or None.
+    Uses multi-stage matching: direct -> synonyms -> fuzzy -> word overlap.
     """
     source_norm = normalize_column_name(source_col)
     
-    # 1. Direct match
+    # 1. Direct match (exact or normalized)
     for target in target_columns:
         if normalize_column_name(target) == source_norm:
             return target
     
-    # 2. Pattern-based matching (Synonyms)
+    # 2. Pattern-based matching (Synonyms) - check if source belongs to a pattern group
     source_pattern = None
     for pattern_key, variants in COLUMN_PATTERNS.items():
         for variant in variants:
-            if variant == source_norm or variant in source_norm:
+            # Check if variant matches source (partial match allowed)
+            if variant == source_norm or variant in source_norm or source_norm in variant:
                 source_pattern = pattern_key
                 break
         if source_pattern:
@@ -79,10 +104,10 @@ def find_matching_column(source_col: str, target_columns: List[str]) -> Optional
         for target in target_columns:
             target_norm = normalize_column_name(target)
             for variant in COLUMN_PATTERNS[source_pattern]:
-                if variant in target_norm:
+                if variant in target_norm or target_norm in variant:
                     return target
     
-    # 3. Fuzzy matching
+    # 3. Fuzzy matching with relaxed threshold
     best_match = None
     best_score = 0.0
     
@@ -93,16 +118,18 @@ def find_matching_column(source_col: str, target_columns: List[str]) -> Optional
         if score > best_score:
             best_score = score
             best_match = target
-            
-    if best_score > 0.85:  # High confidence fuzzy match
+    
+    # Lowered threshold from 0.85 to 0.65 to catch more matches
+    if best_score > 0.65:
         return best_match
-        
-    # 4. Partial word match (fallback)
+    
+    # 4. Partial word match (fallback) - at least one meaningful word in common
     source_words = set(source_norm.split())
     for target in target_columns:
         target_words = set(normalize_column_name(target).split())
         common = source_words & target_words
-        meaningful = [w for w in common if len(w) > 2]
+        # Accept if any common word has 3+ characters
+        meaningful = [w for w in common if len(w) >= 3]
         if meaningful:
             return target
     
@@ -501,6 +528,7 @@ class MappingEditorDialog(tk.Toplevel):
 class SmartMappingSuggestionDialog(tk.Toplevel):
     """
     Dialog showing smart suggestions for all column mappings.
+    Each row is editable - user can choose target column from dropdown or create new.
     """
     
     def __init__(self, parent, 
@@ -514,9 +542,12 @@ class SmartMappingSuggestionDialog(tk.Toplevel):
         self.target_columns = target_columns
         self.result: Optional[List[Dict]] = None
         
+        # Store row widgets
+        self.row_widgets = []  # List of dicts with widgets per row
+        
         self.title("Inteligentne sugestie mapowań")
-        self.geometry("700x500")
-        self.minsize(600, 400)
+        self.geometry("900x600")
+        self.minsize(800, 500)
         
         self.transient(parent)
         self.grab_set()
@@ -542,123 +573,186 @@ class SmartMappingSuggestionDialog(tk.Toplevel):
         header = ttk.Label(
             main_frame,
             text=f"Sugestie mapowań dla: {self.source_name}",
-            font=('Segoe UI', 11, 'bold')
+            font=('Segoe UI', 12, 'bold')
         )
-        header.pack(anchor='w', pady=(0, 10))
+        header.pack(anchor='w', pady=(0, 5))
         
         info = ttk.Label(
             main_frame,
-            text="Zaznacz mapowania które chcesz zastosować:",
-            foreground='gray'
+            text="Zaznacz mapowania i wybierz kolumnę docelową dla każdego. Możesz wybrać istniejącą lub utworzyć nową.",
+            foreground='gray', wraplength=800
         )
-        info.pack(anchor='w', pady=(0, 10))
+        info.pack(anchor='w', pady=(0, 15))
         
-        # Treeview
-        tree_frame = ttk.Frame(main_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True)
+        # Column headers
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 5))
         
-        columns = ('select', 'source', 'arrow', 'target', 'status')
-        self.tree = ttk.Treeview(tree_frame, columns=columns, show='headings', height=15)
+        ttk.Label(header_frame, text="✓", width=3, font=('Segoe UI', 9, 'bold')).pack(side=tk.LEFT)
+        ttk.Label(header_frame, text="Kolumna źródłowa", width=25, font=('Segoe UI', 9, 'bold')).pack(side=tk.LEFT, padx=5)
+        ttk.Label(header_frame, text="→", width=3).pack(side=tk.LEFT)
+        ttk.Label(header_frame, text="Kolumna docelowa", width=30, font=('Segoe UI', 9, 'bold')).pack(side=tk.LEFT, padx=5)
+        ttk.Label(header_frame, text="Tryb", width=15, font=('Segoe UI', 9, 'bold')).pack(side=tk.LEFT, padx=5)
+        ttk.Label(header_frame, text="Status", width=15, font=('Segoe UI', 9, 'bold')).pack(side=tk.LEFT, padx=5)
         
-        self.tree.heading('select', text='✓')
-        self.tree.heading('source', text='Kolumna źródłowa')
-        self.tree.heading('arrow', text='')
-        self.tree.heading('target', text='Kolumna docelowa')
-        self.tree.heading('status', text='Status')
+        # Scrollable frame for rows
+        canvas_frame = ttk.Frame(main_frame)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
         
-        self.tree.column('select', width=40, anchor='center')
-        self.tree.column('source', width=200)
-        self.tree.column('arrow', width=40, anchor='center')
-        self.tree.column('target', width=200)
-        self.tree.column('status', width=150)
+        self.canvas = tk.Canvas(canvas_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         
-        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
         
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.tree.bind('<ButtonRelease-1>', self._on_click)
-        
-        # Selected items tracking
-        self.selected_items = set()
+        # Enable mousewheel scrolling
+        self.canvas.bind_all("<MouseWheel>", lambda e: self.canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
         
         # Buttons
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=(15, 0))
         
-        ttk.Button(btn_frame, text="Zaznacz wszystkie", command=self._select_all).pack(side=tk.LEFT)
-        ttk.Button(btn_frame, text="Odznacz wszystkie", command=self._deselect_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="✓ Zaznacz wszystkie", command=self._select_all).pack(side=tk.LEFT)
+        ttk.Button(btn_frame, text="✗ Odznacz wszystkie", command=self._deselect_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="🔄 Sugestie od nowa", command=self._reset_to_suggestions).pack(side=tk.LEFT, padx=5)
         
         ttk.Button(btn_frame, text="Anuluj", command=self._cancel).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(btn_frame, text="Zastosuj wybrane", command=self._apply, style='Accent.TButton').pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text="✓ Zastosuj wybrane", command=self._apply, style='Accent.TButton').pack(side=tk.RIGHT)
     
     def _generate_suggestions(self):
-        """Generate and display suggestions."""
+        """Generate and display editable suggestions."""
         suggestions = get_all_column_suggestions(self.source_columns, self.target_columns)
         
+        # Prepare target options: existing columns + "(NOWA KOLUMNA)" option
+        target_options = ["(NOWA KOLUMNA)"] + self.target_columns
+        
+        # Write mode options
+        mode_display = {
+            WriteMode.OVERWRITE: "Nadpisz",
+            WriteMode.FILL_EMPTY: "Uzupełnij puste",
+            WriteMode.APPEND: "Dopisz",
+            WriteMode.OVERWRITE_IF_NOT_EMPTY: "Nadpisz jeśli jest"
+        }
+        mode_options = list(mode_display.values())
+        
+        self.row_widgets = []
+        
         for i, sug in enumerate(suggestions):
-            status_icons = {'high': '🟢 Dopasowano', 'medium': '🟡 Podobne', 'low': '⚪ Nowa kolumna'}
-            status = status_icons.get(sug['confidence'], '')
+            row_frame = ttk.Frame(self.scrollable_frame)
+            row_frame.pack(fill=tk.X, pady=2)
             
-            target_display = sug['target_column']
+            # Checkbox
+            selected_var = tk.BooleanVar(value=(sug['confidence'] == 'high'))
+            chk = ttk.Checkbutton(row_frame, variable=selected_var, width=2)
+            chk.pack(side=tk.LEFT)
+            
+            # Source column (read-only)
+            source_label = ttk.Label(row_frame, text=sug['source_column'], width=25)
+            source_label.pack(side=tk.LEFT, padx=5)
+            
+            # Arrow
+            ttk.Label(row_frame, text="→", width=3).pack(side=tk.LEFT)
+            
+            # Target column dropdown (editable)
+            target_var = tk.StringVar()
+            
+            # Set initial value based on suggestion
             if sug['target_is_new']:
-                target_display = f"+ {target_display} (NOWA)"
+                target_var.set("(NOWA KOLUMNA)")
+            else:
+                target_var.set(sug['target_column'])
             
-            item = self.tree.insert('', tk.END, values=(
-                '☐',
-                sug['source_column'],
-                '→',
-                target_display,
-                status
-            ))
+            target_combo = ttk.Combobox(
+                row_frame, textvariable=target_var, 
+                values=target_options, width=28
+            )
+            target_combo.pack(side=tk.LEFT, padx=5)
             
-            # Store suggestion data
-            self.tree.set(item, 'data', str(i))
+            # Mode dropdown
+            mode_var = tk.StringVar(value="Nadpisz")
+            mode_combo = ttk.Combobox(
+                row_frame, textvariable=mode_var,
+                values=mode_options, state='readonly', width=15
+            )
+            mode_combo.pack(side=tk.LEFT, padx=5)
             
-            # Auto-select high confidence matches
-            if sug['confidence'] == 'high':
-                self.selected_items.add(item)
-                self.tree.set(item, 'select', '☑')
+            # Status indicator
+            status_icons = {'high': '🟢 Dopasowano', 'medium': '🟡 Podobne', 'low': '⚪ Nowa'}
+            status = status_icons.get(sug['confidence'], '⚪')
+            status_label = ttk.Label(row_frame, text=status, width=15)
+            status_label.pack(side=tk.LEFT, padx=5)
+            
+            # Store widgets
+            self.row_widgets.append({
+                'index': i,
+                'source_column': sug['source_column'],
+                'selected_var': selected_var,
+                'target_var': target_var,
+                'mode_var': mode_var,
+                'original_suggestion': sug
+            })
         
         self.suggestions = suggestions
     
-    def _on_click(self, event):
-        """Handle click to toggle selection."""
-        region = self.tree.identify_region(event.x, event.y)
-        if region == 'cell':
-            column = self.tree.identify_column(event.x)
-            item = self.tree.identify_row(event.y)
-            
-            if column == '#1' and item:  # Select column
-                if item in self.selected_items:
-                    self.selected_items.remove(item)
-                    self.tree.set(item, 'select', '☐')
-                else:
-                    self.selected_items.add(item)
-                    self.tree.set(item, 'select', '☑')
-    
     def _select_all(self):
         """Select all items."""
-        for item in self.tree.get_children():
-            self.selected_items.add(item)
-            self.tree.set(item, 'select', '☑')
+        for row in self.row_widgets:
+            row['selected_var'].set(True)
     
     def _deselect_all(self):
         """Deselect all items."""
-        for item in self.tree.get_children():
-            if item in self.selected_items:
-                self.selected_items.remove(item)
-            self.tree.set(item, 'select', '☐')
+        for row in self.row_widgets:
+            row['selected_var'].set(False)
+    
+    def _reset_to_suggestions(self):
+        """Reset all dropdowns to original suggestions."""
+        for row in self.row_widgets:
+            sug = row['original_suggestion']
+            if sug['target_is_new']:
+                row['target_var'].set("(NOWA KOLUMNA)")
+            else:
+                row['target_var'].set(sug['target_column'])
+            row['selected_var'].set(sug['confidence'] == 'high')
     
     def _apply(self):
         """Apply selected mappings."""
         self.result = []
         
-        for item in self.selected_items:
-            idx = int(self.tree.index(item))
-            if idx < len(self.suggestions):
-                self.result.append(self.suggestions[idx])
+        mode_reverse = {
+            "Nadpisz": WriteMode.OVERWRITE,
+            "Uzupełnij puste": WriteMode.FILL_EMPTY,
+            "Dopisz": WriteMode.APPEND,
+            "Nadpisz jeśli jest": WriteMode.OVERWRITE_IF_NOT_EMPTY
+        }
+        
+        for row in self.row_widgets:
+            if row['selected_var'].get():
+                target = row['target_var'].get()
+                is_new = (target == "(NOWA KOLUMNA)")
+                
+                if is_new:
+                    # Use source column name as new column name
+                    target = row['source_column']
+                
+                mode_str = row['mode_var'].get()
+                mode = mode_reverse.get(mode_str, WriteMode.OVERWRITE)
+                
+                self.result.append({
+                    'source_column': row['source_column'],
+                    'target_column': target,
+                    'target_is_new': is_new,
+                    'write_mode': mode,
+                    'confidence': row['original_suggestion'].get('confidence', 'medium')
+                })
         
         self.destroy()
     
