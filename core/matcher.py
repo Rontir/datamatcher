@@ -60,6 +60,9 @@ class DataMatcher:
         self.mapping_manager = MappingManager()
         self.key_options: Dict[str, Any] = {}
         
+        # Batch filter for limiting which rows to process
+        self.batch_filter = None  # Optional[BatchFilter]
+        
         # Callbacks for progress updates
         self._progress_callback: Optional[Callable[[int, int, str], None]] = None
     
@@ -203,6 +206,11 @@ class DataMatcher:
             
             if normalized_key is None:
                 continue  # Skip empty keys
+            
+            # Check batch filter
+            if self.batch_filter and self.batch_filter.enabled:
+                if not self.batch_filter.should_process_row(idx, str(raw_key)):
+                    continue  # Skip this row due to filter
             
             key_matched_somewhere = normalized_key in all_matched_keys
             

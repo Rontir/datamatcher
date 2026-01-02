@@ -402,13 +402,22 @@ class MainApplication:
                 'strip_leading_zeros': self.strip_zeros_var.get()
             }
             
+            # Apply batch filter if set
+            batch_filter = getattr(self, 'batch_filter', None)
+            self.matcher.batch_filter = batch_filter
+            
             result = self.matcher.execute()
             self.current_result = result
             
             self.preview_panel.set_preview_data(result.result_df, result.changes)
             self.preview_panel.update_stats(result.stats)
             
-            self._set_status("Podgląd gotowy - sprawdź wyniki i zapisz")
+            # Build status message
+            filter_info = ""
+            if batch_filter and batch_filter.enabled:
+                filter_info = f" [Filtr: {batch_filter.get_description()}]"
+            
+            self._set_status(f"Podgląd gotowy - sprawdź wyniki i zapisz{filter_info}")
             self.save_btn.config(state='normal')
             
         except Exception as e:
