@@ -29,6 +29,7 @@ from core.reporter import Reporter
 from core.mapping import ColumnMapping, WriteMode
 from utils.config import Config, Profile, list_profiles
 from utils.file_handlers import save_excel, create_backup
+from utils.session import SessionManager, BatchFilter
 
 
 class MainApplication:
@@ -106,6 +107,10 @@ class MainApplication:
         tools_menu.add_command(label="Odśwież podgląd", command=self._execute_preview, accelerator="F5")
         tools_menu.add_command(label="Cofnij mapowanie", command=self._undo_mapping, accelerator="Ctrl+Z")
         tools_menu.add_separator()
+        tools_menu.add_command(label="Filtr przetwarzania...", command=self._show_batch_filter)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="Zapisz sesję", command=self._save_session)
+        tools_menu.add_command(label="Wczytaj ostatnią sesję", command=self._load_last_session)
         tools_menu.add_command(label="Nowa sesja", command=self._new_session)
         
         # Settings submenu
@@ -652,8 +657,101 @@ class MainApplication:
             "© 2025"
         )
     
+    def _save_session(self, silent: bool = False):
+        """Save current session state."""
+        if not self.matcher.base_source:
+            if not silent:
+                messagebox.showinfo("Brak danych", "Brak danych do zapisania.")
+            return
+        
+        session_data = {
+            'base_file': self.matcher.base_source.filepath,
+            'base_key_column': self.matcher.base_source.key_column,
+            'sources': [
+                {
+                    'filepath': s.filepath,
+                    'key_column': s.key_column
+                } for s in self.matcher.data_sources.values()
+            ],
+            'mappings': self.matcher.mapping_manager.to_list(),
+            'key_options': self.matcher.key_options
+        }
+        
+        if SessionManager.save_session(session_data):
+            if not silent:
+                messagebox.showinfo("Zapisano", "Sesja została zapisana.")
+        else:
+            if not silent:
+                messagebox.showerror("Błąd", "Nie udało się zapisać sesji.")
+    
+    def _load_last_session(self):
+        """Load last saved session."""
+        session = SessionManager.load_session()
+        
+        if not session:
+            messagebox.showinfo("Brak sesji", "Nie znaleziono zapisanej sesji.")
+            return
+        
+        try:
+            # Load base file
+            base_path = session.get('base_file')
+            if base_path and Path(base_path).exists():
+                base_source = DataSource.from_file(
+                    base_path,
+                    key_column=session.get('base_key_column', '')
+                )
+                self.base_panel.set_source(base_source)
+                self._on_base_loaded(base_source)
+            
+            # Load sources
+            for src_data in session.get('sources', []):
+                src_path = src_data.get('filepath')
+                if src_path and Path(src_path).exists():
+                    source = DataSource.from_file(
+                        src_path,
+                        key_column=src_data.get('key_column', '')
+                    )
+                    self.sources_panel.add_source(source)
+                    self._on_source_added(source)
+            
+            # Load mappings
+            self.mappings_panel.load_mappings(session.get('mappings', []))
+            
+            # Load key options
+            self.matcher.key_options = session.get('key_options', {})
+            
+            self._set_status("Sesja wczytana")
+            
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Nie można wczytać sesji:\n{e}")
+    
+    def _show_batch_filter(self):
+        """Show batch filter dialog."""
+        from gui.dialogs.batch_filter import BatchFilterDialog
+        
+        # Get current filter or create new
+        current_filter = getattr(self, 'batch_filter', None) or BatchFilter()
+        
+        dialog = BatchFilterDialog(self.root, current_filter)
+        
+        if dialog.result:
+            self.batch_filter = dialog.result
+            self._set_status(f"Filtr: {self.batch_filter.get_description()}")
+    
+    def _check_startup_session(self):
+        """Check for saved session on startup."""
+        info = SessionManager.get_session_info()
+        if info:
+            from gui.dialogs.batch_filter import LastSessionDialog
+            dialog = LastSessionDialog(self.root, info)
+            if dialog.result == "load":
+                self._load_last_session()
+    
     def _on_close(self):
         """Handle window close."""
+        # Auto-save session
+        self._save_session(silent=True)
+        
         # Save window position
         self.config.window_width = self.root.winfo_width()
         self.config.window_height = self.root.winfo_height()
