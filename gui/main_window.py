@@ -410,9 +410,13 @@ class MainApplication:
         # Set up progress callback
         def progress_callback(current, total, message):
             percent = (current / total * 100) if total > 0 else 0
-            self._set_progress(percent)
-            self._set_status(f"Przetwarzanie: {current:,}/{total:,} wierszy ({percent:.0f}%)")
-            self.root.update_idletasks()  # Update UI without blocking
+            
+            def update_ui():
+                self._set_progress(percent)
+                self._set_status(f"Przetwarzanie: {current:,}/{total:,} wierszy ({percent:.0f}%)")
+            
+            # Schedule UI update on main thread
+            self.root.after(0, update_ui)
         
         self.matcher.set_progress_callback(progress_callback)
         
@@ -502,13 +506,21 @@ class MainApplication:
     def _validate_ready(self) -> bool:
         """Check if ready to execute."""
         if not self.matcher.base_source:
+            messagebox.showwarning("Brak pliku bazowego", "Wczytaj najpierw plik bazowy.")
             return False
+            
         if not self.matcher.base_source.key_column:
+            messagebox.showwarning("Brak klucza", "Wybierz kolumnę klucza dla pliku bazowego.")
             return False
+            
         if not self.matcher.data_sources:
+            messagebox.showwarning("Brak źródeł", "Dodaj przynajmniej jedno źródło danych.")
             return False
+            
         if not self.matcher.mapping_manager.mappings:
+            messagebox.showwarning("Brak mapowań", "Zdefiniuj przynajmniej jedno mapowanie kolumn.")
             return False
+            
         return True
     
     # Menu actions
