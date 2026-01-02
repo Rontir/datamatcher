@@ -229,19 +229,30 @@ class MappingsPanel(ttk.LabelFrame):
         )
         
         if dialog.result:
+            added_count = 0
             for sug in dialog.result:
+                # Get write_mode from dialog or default to OVERWRITE
+                write_mode = sug.get('write_mode', WriteMode.OVERWRITE)
+                if isinstance(write_mode, str):
+                    write_mode = WriteMode(write_mode)
+                
                 mapping = ColumnMapping(
                     source_id=source_id,
                     source_name=source_name,
                     source_column=sug['source_column'],
                     target_column=sug['target_column'],
-                    target_is_new=sug['target_is_new'],
-                    write_mode=WriteMode.OVERWRITE
+                    target_is_new=sug.get('target_is_new', False),
+                    write_mode=write_mode
                 )
                 self.mapping_manager.add(mapping)
+                added_count += 1
             
             self._refresh_tree()
             self._notify_change()
+            
+            # Show confirmation
+            from tkinter import messagebox
+            messagebox.showinfo("Dodano mapowania", f"Dodano {added_count} mapowań z sugestii.")
     
     def _remove_selected(self):
         """Remove selected mappings."""
