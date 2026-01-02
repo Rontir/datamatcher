@@ -125,14 +125,38 @@ class BaseFilePanel(ttk.LabelFrame):
         if not filepath:
             return
         
-        self.load_from_path(filepath)
+        self._load_file_threaded(filepath)
     
-    def load_from_path(self, filepath: str, sheet: Optional[str] = None):
-        """Load file from specified path."""
-        try:
-            # Create data source
-            self.data_source = DataSource(filepath=filepath)
-            self.sheets = self.data_source.load(sheet)
+    def _load_file_threaded(self, filepath: str, sheet: Optional[str] = None):
+        """Load file in a separate thread."""
+        self.load_btn.config(state='disabled', text="⏳ Wczytywanie pliku...")
+        self.file_label.config(text=f"Wczytywanie: {filepath}...")
+        
+        import threading
+        
+        def load_task():
+            try:
+                # Create data source (heavy IO)
+                data_source = DataSource(filepath=filepath)
+                sheets = data_source.load(sheet)
+                return (data_source, sheets, None)
+            except Exception as e:
+                return (None, None, str(e))
+        
+        def on_complete(result):
+            data_source, sheets, error = result
+            
+            self.load_btn.config(state='normal', text="📂 Wczytaj plik bazowy...")
+            
+            if error:
+                from tkinter import messagebox
+                messagebox.showerror("Błąd", f"Nie można wczytać pliku:\n{error}")
+                self.file_label.config(text="Plik: (błąd wczytywania)")
+                return
+            
+            # Success - update UI
+            self.data_source = data_source
+            self.sheets = sheets
             
             # Update file info
             file_info = get_file_info(filepath)
@@ -165,10 +189,16 @@ class BaseFilePanel(ttk.LabelFrame):
             # Notify callback
             if self.on_file_loaded:
                 self.on_file_loaded(self.data_source)
-                
-        except Exception as e:
-            from tkinter import messagebox
-            messagebox.showerror("Błąd", f"Nie można wczytać pliku:\n{e}")
+        
+        def thread_target():
+            result = load_task()
+            self.after(0, lambda: on_complete(result))
+            
+        threading.Thread(target=thread_target, daemon=True).start()
+    
+    def load_from_path(self, filepath: str, sheet: Optional[str] = None):
+        """Load file from specified path (public API)."""
+        self._load_file_threaded(filepath, sheet)
     
     def _on_sheet_changed(self, event=None):
         """Handle sheet selection change."""

@@ -116,10 +116,12 @@ class PreviewPanel(ttk.LabelFrame):
         ToolTip(self.export_diff_btn, "Eksportuj tylko zmienione wiersze do nowego pliku Excel")
         
         self.refresh_btn = ttk.Button(
-            search_frame, text="🔄 Odśwież (F5)",
-            command=self._refresh
+            search_frame, text="▶ GENERUJ PODGLĄD (F5)",
+            command=self._refresh,
+            style='Accent.TButton'
         )
         self.refresh_btn.pack(side=tk.RIGHT)
+        ToolTip(self.refresh_btn, "Uruchom przetwarzanie i zaktualizuj wyniki")
         
         # === TREEVIEW ===
         tree_frame = ttk.Frame(self)
