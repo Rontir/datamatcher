@@ -338,23 +338,26 @@ class DataMatcher:
         self._report_progress(total_rows, total_rows, "Zakończono")
         
         # --- Smart Column Reordering ---
-        # 1. Identify base columns (preserve their original order)
-        base_cols = []
-        if self.base_source:
-            base_cols = [c for c in self.base_source.get_columns() if c in result_df.columns]
-        
-        # 2. Identify new columns from mappings (in mapping order)
-        new_cols_ordered = []
-        seen_new = set()
+        # 1. Identify all target columns defined in mappings (in order)
+        mapped_targets = []
+        seen_targets = set()
         for m in self.mapping_manager.mappings:
-            if m.target_is_new and m.target_column in result_df.columns and m.target_column not in seen_new:
-                new_cols_ordered.append(m.target_column)
-                seen_new.add(m.target_column)
+            if m.target_column not in seen_targets:
+                mapped_targets.append(m.target_column)
+                seen_targets.add(m.target_column)
         
-        # 3. Combine: Base Columns + New Columns (in mapping order) + Any other columns
-        final_cols = base_cols + new_cols_ordered
+        # 2. Identify base columns that are NOT mapped (preserve original order)
+        unmapped_base_cols = []
+        if self.base_source:
+            for col in self.base_source.get_columns():
+                if col in result_df.columns and col not in seen_targets:
+                    unmapped_base_cols.append(col)
         
-        # Add any remaining columns that might have been missed (safety check)
+        # 3. Combine: Unmapped Base Cols + Mapped Targets (in mapping order)
+        # This ensures that if user maps an existing column, it moves to the mapped section
+        final_cols = unmapped_base_cols + [c for c in mapped_targets if c in result_df.columns]
+        
+        # 4. Add any remaining columns (safety check)
         existing_set = set(final_cols)
         for c in result_df.columns:
             if c not in existing_set:
