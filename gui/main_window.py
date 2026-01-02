@@ -309,12 +309,9 @@ class MainApplication:
         self.matcher.add_source(source)
         self._update_mappings_options()
         self._update_match_stats()
-        self._set_status(f"Dodano źródło: {source.filename}")
+        self._set_status(f"Dodano źródło: {source.filename} - Kliknij 'Sugestie' aby dodać mapowania")
         self.config.add_recent_source_file(source.filepath)
-        
-        # Auto-suggest mappings if base file is loaded
-        if self.matcher.base_source and self.matcher.base_source.key_column:
-            self._auto_suggest_mappings(source)
+        # User will click "Sugestie" manually when ready
     
     def _auto_suggest_mappings(self, source: DataSource):
         """Automatically suggest mappings for new source."""
