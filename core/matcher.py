@@ -337,6 +337,32 @@ class DataMatcher:
         
         self._report_progress(total_rows, total_rows, "Zakończono")
         
+        # --- Smart Column Reordering ---
+        # 1. Identify base columns (preserve their original order)
+        base_cols = []
+        if self.base_source:
+            base_cols = [c for c in self.base_source.get_columns() if c in result_df.columns]
+        
+        # 2. Identify new columns from mappings (in mapping order)
+        new_cols_ordered = []
+        seen_new = set()
+        for m in self.mapping_manager.mappings:
+            if m.target_is_new and m.target_column in result_df.columns and m.target_column not in seen_new:
+                new_cols_ordered.append(m.target_column)
+                seen_new.add(m.target_column)
+        
+        # 3. Combine: Base Columns + New Columns (in mapping order) + Any other columns
+        final_cols = base_cols + new_cols_ordered
+        
+        # Add any remaining columns that might have been missed (safety check)
+        existing_set = set(final_cols)
+        for c in result_df.columns:
+            if c not in existing_set:
+                final_cols.append(c)
+        
+        result_df = result_df[final_cols]
+        # -------------------------------
+        
         # Calculate stats
         stats = self._calculate_stats(changes, total_rows, validation_warnings)
         
