@@ -1,5 +1,6 @@
 """
 Matcher module - the main matching logic engine.
+Supports conditional rules, templates, and custom script transformations.
 """
 import pandas as pd
 import numpy as np
@@ -20,6 +21,7 @@ class ChangeType(Enum):
     CHANGED = "changed"   # Value modified
     NO_MATCH = "no_match" # Key not found in any source
     CONFLICT = "conflict" # Multiple sources with different values
+    SKIPPED = "skipped"   # Skipped due to condition not met
 
 
 @dataclass
@@ -36,6 +38,7 @@ class CellChange:
     mapping_id: str
     write_mode: WriteMode
     transform: Optional[str] = None
+    validation_warning: Optional[str] = None  # Type mismatch warning
 
 
 @dataclass
@@ -45,6 +48,7 @@ class MatchResult:
     changes: List[CellChange] = field(default_factory=list)
     stats: Dict[str, Any] = field(default_factory=dict)
     unmatched_keys: List[str] = field(default_factory=list)
+    validation_warnings: List[str] = field(default_factory=list)
 
 
 class DataMatcher:
@@ -107,6 +111,65 @@ class DataMatcher:
         if self._progress_callback:
             self._progress_callback(current, total, message)
     
+    def _execute_custom_script(self, value: Any, script: str) -> Any:
+        """Safely execute a custom Python script/lambda on a value."""
+        if not script or not script.strip():
+            return value
+        
+        try:
+            # Create a safe namespace
+            safe_globals = {
+                '__builtins__': {
+                    'str': str, 'int': int, 'float': float, 'bool': bool,
+                    'len': len, 'abs': abs, 'round': round, 'min': min, 'max': max,
+                    'sum': sum, 'sorted': sorted, 'list': list, 'dict': dict,
+                    'upper': str.upper, 'lower': str.lower, 'strip': str.strip,
+                    'replace': str.replace, 'split': str.split,
+                    'None': None, 'True': True, 'False': False,
+                }
+            }
+            
+            # Execute the script
+            if script.strip().startswith('lambda'):
+                func = eval(script.strip(), safe_globals)
+                return func(value)
+            else:
+                # Assume it's an expression using 'x' as the variable
+                safe_globals['x'] = value
+                return eval(script.strip(), safe_globals)
+                
+        except Exception as e:
+            # On error, return original value
+            return value
+    
+    def _validate_type(self, value: Any, expected_type: str) -> Optional[str]:
+        """Validate value against expected type. Returns warning message or None."""
+        if not expected_type or value is None or is_empty(value):
+            return None
+        
+        value_str = str(value)
+        
+        if expected_type == "number":
+            try:
+                float(value_str.replace(',', '.'))
+                return None
+            except ValueError:
+                return f"Oczekiwano liczby, otrzymano: '{value_str[:20]}'"
+        
+        elif expected_type == "date":
+            import re
+            date_patterns = [
+                r'\d{4}-\d{2}-\d{2}',
+                r'\d{2}/\d{2}/\d{4}',
+                r'\d{2}\.\d{2}\.\d{4}'
+            ]
+            for pattern in date_patterns:
+                if re.match(pattern, value_str):
+                    return None
+            return f"Oczekiwano daty, otrzymano: '{value_str[:20]}'"
+        
+        return None  # String type or unknown
+    
     def execute(self) -> MatchResult:
         """Execute all mappings and return the result."""
         if not self.base_source or self.base_source.dataframe is None:
@@ -119,6 +182,7 @@ class DataMatcher:
         result_df = self.base_source.dataframe.copy()
         changes: List[CellChange] = []
         unmatched_keys: set = set()
+        validation_warnings: List[str] = []
         
         base_key_col = self.base_source.key_column
         total_rows = len(result_df)
@@ -155,11 +219,11 @@ class DataMatcher:
                 if mapping.target_is_new and mapping.target_column not in result_df.columns:
                     result_df[mapping.target_column] = np.nan
                 
-                # Get source value
-                source_value = source.get_value_for_key(str(raw_key), mapping.source_column)
+                # Get source row data for this key
+                source_row_data = source.get_key_lookup().get(normalized_key, {})
                 
-                if source_value is None:
-                    # No match in this source, mark if no match anywhere
+                if not source_row_data:
+                    # No match in this source
                     if not key_matched_somewhere:
                         changes.append(CellChange(
                             row_index=row_idx,
@@ -175,9 +239,47 @@ class DataMatcher:
                         ))
                     continue
                 
-                # Apply transformation
+                # Evaluate conditional rules
+                row_dict = row.to_dict()
+                if not mapping.evaluate_conditions(row_dict, source_row_data):
+                    # Condition not met, skip this mapping for this row
+                    changes.append(CellChange(
+                        row_index=row_idx,
+                        column=mapping.target_column,
+                        key=str(raw_key),
+                        old_value=row.get(mapping.target_column),
+                        new_value=None,
+                        change_type=ChangeType.SKIPPED,
+                        source_id=mapping.source_id,
+                        source_name=mapping.source_name,
+                        mapping_id=mapping.id,
+                        write_mode=mapping.write_mode
+                    ))
+                    continue
+                
+                # Get source value (from template or column)
+                if mapping.source_template:
+                    source_value = mapping.render_template(source_row_data)
+                else:
+                    source_value = source_row_data.get(mapping.source_column)
+                
+                if source_value is None:
+                    continue
+                
+                # Apply built-in transformation
                 if mapping.transform:
                     source_value = apply_transform(source_value, mapping.transform)
+                
+                # Apply custom script transformation
+                if mapping.custom_script:
+                    source_value = self._execute_custom_script(source_value, mapping.custom_script)
+                
+                # Validate type
+                validation_warning = None
+                if mapping.expected_type:
+                    validation_warning = self._validate_type(source_value, mapping.expected_type)
+                    if validation_warning:
+                        validation_warnings.append(f"Wiersz {row_idx}, {mapping.target_column}: {validation_warning}")
                 
                 # Get current value
                 current_value = row.get(mapping.target_column) if mapping.target_column in row.index else None
@@ -207,7 +309,8 @@ class DataMatcher:
                         source_name=mapping.source_name,
                         mapping_id=mapping.id,
                         write_mode=mapping.write_mode,
-                        transform=mapping.transform
+                        transform=mapping.transform,
+                        validation_warning=validation_warning
                     ))
                 else:
                     # Record unchanged
@@ -227,13 +330,14 @@ class DataMatcher:
         self._report_progress(total_rows, total_rows, "Zakończono")
         
         # Calculate stats
-        stats = self._calculate_stats(changes, total_rows)
+        stats = self._calculate_stats(changes, total_rows, validation_warnings)
         
         return MatchResult(
             result_df=result_df,
             changes=changes,
             stats=stats,
-            unmatched_keys=list(unmatched_keys)
+            unmatched_keys=list(unmatched_keys),
+            validation_warnings=validation_warnings
         )
     
     def _should_write(self, current: Any, new: Any, mode: WriteMode) -> Tuple[bool, ChangeType]:
@@ -284,10 +388,12 @@ class DataMatcher:
         
         return False, ChangeType.UNCHANGED
     
-    def _calculate_stats(self, changes: List[CellChange], total_rows: int) -> Dict[str, Any]:
+    def _calculate_stats(self, changes: List[CellChange], total_rows: int, 
+                         validation_warnings: List[str]) -> Dict[str, Any]:
         """Calculate statistics from changes."""
         new_count = sum(1 for c in changes if c.change_type == ChangeType.NEW)
         changed_count = sum(1 for c in changes if c.change_type == ChangeType.CHANGED)
+        skipped_count = sum(1 for c in changes if c.change_type == ChangeType.SKIPPED)
         no_match_count = len(set(c.key for c in changes if c.change_type == ChangeType.NO_MATCH))
         
         rows_with_changes = len(set(c.row_index for c in changes 
@@ -299,27 +405,22 @@ class DataMatcher:
             'rows_no_match': no_match_count,
             'cells_new': new_count,
             'cells_changed': changed_count,
+            'cells_skipped': skipped_count,
             'cells_total_modified': new_count + changed_count,
+            'validation_warnings_count': len(validation_warnings),
             'match_percent': ((total_rows - no_match_count) / total_rows * 100) if total_rows > 0 else 0
         }
     
     def get_preview(self, max_rows: int = 100, filter_type: str = "all") -> pd.DataFrame:
-        """Get a preview of changes without modifying the original data.
-        
-        Args:
-            max_rows: Maximum number of rows to return
-            filter_type: "all", "changed", "unmatched"
-        """
+        """Get a preview of changes without modifying the original data."""
         result = self.execute()
         
         if filter_type == "changed":
-            # Get rows that have at least one change
             changed_rows = set(c.row_index for c in result.changes 
                                if c.change_type in (ChangeType.NEW, ChangeType.CHANGED))
             return result.result_df.loc[list(changed_rows)[:max_rows]]
         
         elif filter_type == "unmatched":
-            # Get rows with unmatched keys
             unmatched_rows = set(c.row_index for c in result.changes 
                                   if c.change_type == ChangeType.NO_MATCH)
             return result.result_df.loc[list(unmatched_rows)[:max_rows]]

@@ -1,7 +1,8 @@
 """
-Mapping module - defines column mappings and write modes.
+Mapping module - defines column mappings, write modes, and conditional rules.
 """
 import uuid
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, List, Dict, Any
@@ -36,6 +37,115 @@ class WriteMode(Enum):
         return {mode: cls.get_display_name(mode) for mode in cls}
 
 
+class RuleOperator(Enum):
+    """Operators for rule conditions."""
+    EQUALS = "equals"               # ==
+    NOT_EQUALS = "not_equals"       # !=
+    CONTAINS = "contains"           # in
+    NOT_CONTAINS = "not_contains"   # not in
+    STARTS_WITH = "starts_with"     # startswith
+    ENDS_WITH = "ends_with"         # endswith
+    IS_EMPTY = "is_empty"           # is None or ''
+    IS_NOT_EMPTY = "is_not_empty"   # is not None and != ''
+    GREATER_THAN = "gt"             # >
+    LESS_THAN = "lt"                # <
+    REGEX_MATCH = "regex"           # re.match
+    
+    @classmethod
+    def get_display_name(cls, op: 'RuleOperator') -> str:
+        names = {
+            cls.EQUALS: "równe",
+            cls.NOT_EQUALS: "różne od",
+            cls.CONTAINS: "zawiera",
+            cls.NOT_CONTAINS: "nie zawiera",
+            cls.STARTS_WITH: "zaczyna się od",
+            cls.ENDS_WITH: "kończy się na",
+            cls.IS_EMPTY: "jest puste",
+            cls.IS_NOT_EMPTY: "nie jest puste",
+            cls.GREATER_THAN: "większe niż",
+            cls.LESS_THAN: "mniejsze niż",
+            cls.REGEX_MATCH: "pasuje do regex",
+        }
+        return names.get(op, op.value)
+
+
+@dataclass
+class RuleCondition:
+    """A single condition for conditional mapping."""
+    
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    column: str = ""                        # Column to check (source or target)
+    operator: RuleOperator = RuleOperator.EQUALS
+    value: str = ""                         # Value to compare against
+    is_source_column: bool = True           # Check source (True) or target (False)
+    
+    def evaluate(self, row_data: Dict[str, Any], source_data: Dict[str, Any]) -> bool:
+        """Evaluate the condition against row data."""
+        # Get the value to check
+        if self.is_source_column:
+            check_value = source_data.get(self.column)
+        else:
+            check_value = row_data.get(self.column)
+        
+        # Convert to string for comparison
+        check_str = str(check_value) if check_value is not None else ""
+        compare_value = self.value
+        
+        # Apply operator
+        if self.operator == RuleOperator.EQUALS:
+            return check_str.lower() == compare_value.lower()
+        elif self.operator == RuleOperator.NOT_EQUALS:
+            return check_str.lower() != compare_value.lower()
+        elif self.operator == RuleOperator.CONTAINS:
+            return compare_value.lower() in check_str.lower()
+        elif self.operator == RuleOperator.NOT_CONTAINS:
+            return compare_value.lower() not in check_str.lower()
+        elif self.operator == RuleOperator.STARTS_WITH:
+            return check_str.lower().startswith(compare_value.lower())
+        elif self.operator == RuleOperator.ENDS_WITH:
+            return check_str.lower().endswith(compare_value.lower())
+        elif self.operator == RuleOperator.IS_EMPTY:
+            return check_value is None or check_str.strip() == ""
+        elif self.operator == RuleOperator.IS_NOT_EMPTY:
+            return check_value is not None and check_str.strip() != ""
+        elif self.operator == RuleOperator.GREATER_THAN:
+            try:
+                return float(check_str) > float(compare_value)
+            except ValueError:
+                return False
+        elif self.operator == RuleOperator.LESS_THAN:
+            try:
+                return float(check_str) < float(compare_value)
+            except ValueError:
+                return False
+        elif self.operator == RuleOperator.REGEX_MATCH:
+            try:
+                return bool(re.search(compare_value, check_str, re.IGNORECASE))
+            except re.error:
+                return False
+        
+        return False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'column': self.column,
+            'operator': self.operator.value,
+            'value': self.value,
+            'is_source_column': self.is_source_column
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RuleCondition':
+        return cls(
+            id=data.get('id', str(uuid.uuid4())),
+            column=data.get('column', ''),
+            operator=RuleOperator(data.get('operator', 'equals')),
+            value=data.get('value', ''),
+            is_source_column=data.get('is_source_column', True)
+        )
+
+
 @dataclass
 class ColumnMapping:
     """Represents a mapping from source column to target column."""
@@ -52,6 +162,55 @@ class ColumnMapping:
     priority: int = 0                       # Kolejność wykonania
     enabled: bool = True                    # Czy mapowanie jest aktywne
     
+    # Advanced: Template mode (combine multiple columns)
+    source_template: str = ""               # e.g., "{Marka} - {Model}" (if set, overrides source_column)
+    
+    # Advanced: Conditional rules
+    conditions: List[RuleCondition] = field(default_factory=list)
+    condition_logic: str = "AND"            # "AND" or "OR"
+    
+    # Advanced: Custom Python script for transformation
+    custom_script: str = ""                 # Python lambda expression, e.g., "lambda x: x.upper()"
+    
+    # Validation
+    expected_type: str = ""                 # "string", "number", "date" - for validation warnings
+    
+    def evaluate_conditions(self, row_data: Dict[str, Any], source_data: Dict[str, Any]) -> bool:
+        """
+        Evaluate all conditions to determine if mapping should be applied.
+        Returns True if mapping should be applied, False otherwise.
+        """
+        if not self.conditions:
+            return True  # No conditions = always apply
+        
+        results = [c.evaluate(row_data, source_data) for c in self.conditions]
+        
+        if self.condition_logic == "OR":
+            return any(results)
+        else:  # AND
+            return all(results)
+    
+    def render_template(self, source_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Render the source_template using values from source_data.
+        Returns the rendered string or None if template is empty.
+        """
+        if not self.source_template:
+            return None
+        
+        result = self.source_template
+        
+        # Find all {column_name} patterns
+        pattern = r'\{([^}]+)\}'
+        matches = re.findall(pattern, self.source_template)
+        
+        for col_name in matches:
+            value = source_data.get(col_name, '')
+            value_str = str(value) if value is not None else ''
+            result = result.replace(f'{{{col_name}}}', value_str)
+        
+        return result
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -65,7 +224,12 @@ class ColumnMapping:
             'transform': self.transform,
             'append_separator': self.append_separator,
             'priority': self.priority,
-            'enabled': self.enabled
+            'enabled': self.enabled,
+            'source_template': self.source_template,
+            'conditions': [c.to_dict() for c in self.conditions],
+            'condition_logic': self.condition_logic,
+            'custom_script': self.custom_script,
+            'expected_type': self.expected_type
         }
     
     @classmethod
@@ -74,6 +238,8 @@ class ColumnMapping:
         write_mode = data.get('write_mode', 'overwrite')
         if isinstance(write_mode, str):
             write_mode = WriteMode(write_mode)
+        
+        conditions = [RuleCondition.from_dict(c) for c in data.get('conditions', [])]
         
         return cls(
             id=data.get('id', str(uuid.uuid4())),
@@ -86,7 +252,12 @@ class ColumnMapping:
             transform=data.get('transform'),
             append_separator=data.get('append_separator', ' | '),
             priority=data.get('priority', 0),
-            enabled=data.get('enabled', True)
+            enabled=data.get('enabled', True),
+            source_template=data.get('source_template', ''),
+            conditions=conditions,
+            condition_logic=data.get('condition_logic', 'AND'),
+            custom_script=data.get('custom_script', ''),
+            expected_type=data.get('expected_type', '')
         )
     
     def get_display_mode(self) -> str:
