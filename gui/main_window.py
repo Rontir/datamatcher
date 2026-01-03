@@ -121,20 +121,33 @@ class MainApplication:
         settings_menu.add_checkbutton(label="Twórz kopię zapasową", variable=self.backup_var)
         
         self.case_insensitive_var = tk.BooleanVar(value=self.config.case_insensitive)
-        settings_menu.add_checkbutton(label="Ignoruj wielkość liter", variable=self.case_insensitive_var)
+        settings_menu.add_checkbutton(
+            label="Ignoruj wielkość liter", 
+            variable=self.case_insensitive_var,
+            command=self._on_settings_changed
+        )
         
         self.strip_zeros_var = tk.BooleanVar(value=self.config.strip_leading_zeros)
-        settings_menu.add_checkbutton(label="Usuń zera wiodące", variable=self.strip_zeros_var)
+        settings_menu.add_checkbutton(
+            label="Usuń zera wiodące", 
+            variable=self.strip_zeros_var,
+            command=self._on_settings_changed
+        )
         
         self.strip_decimal_var = tk.BooleanVar(value=True)  # Default ON - common issue
-        settings_menu.add_checkbutton(label="Normalizuj do liczby całkowitej (usuń .0)", variable=self.strip_decimal_var)
+        settings_menu.add_checkbutton(
+            label="Normalizuj do liczby całkowitej (usuń .0)", 
+            variable=self.strip_decimal_var,
+            command=self._on_settings_changed
+        )
         
         settings_menu.add_separator()
         
         self.normalize_paths_var = tk.BooleanVar(value=False)  # Default OFF - specialized use
         settings_menu.add_checkbutton(
             label="🗂️ Tryb struktur/kategorii (normalizuj ścieżki)", 
-            variable=self.normalize_paths_var
+            variable=self.normalize_paths_var,
+            command=self._on_settings_changed
         )
         
         # Theme submenu (if ttkbootstrap available)
@@ -389,6 +402,18 @@ class MainApplication:
         
         if self.matcher.base_source:
             self.mappings_panel.set_target_columns(self.matcher.base_source.get_columns())
+    
+    def _on_settings_changed(self):
+        """Handle settings change (checkboxes)."""
+        self._set_status("Aktualizowanie ustawień...")
+        self.root.update_idletasks()
+        
+        # Update stats immediately
+        self._update_match_stats()
+        
+        # If we have mappings, we might want to invalidate preview or auto-refresh?
+        # For now, just update stats as that's what the user sees first.
+        self._set_status("Zaktualizowano ustawienia. Odśwież podgląd (F5).")
     
     def _update_match_stats(self):
         """Update match statistics for all sources."""

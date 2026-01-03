@@ -121,15 +121,65 @@ class SourceCard(ttk.Frame):
         if not self.unmatched_keys:
             return
         
-        from tkinter import messagebox
-        # Show first 20 unmatched keys
-        sample = self.unmatched_keys[:20]
-        msg = f"Niedopasowane klucze ({len(self.unmatched_keys)} łącznie):\n\n"
-        msg += "\n".join(str(k) for k in sample)
-        if len(self.unmatched_keys) > 20:
-            msg += f"\n... i {len(self.unmatched_keys) - 20} więcej"
+        # Custom dialog window
+        dialog = tk.Toplevel(self)
+        dialog.title(f"Niedopasowane: {self.source.filename}")
+        dialog.geometry("500x600")
         
-        messagebox.showinfo(f"Niedopasowane: {self.source.filename}", msg)
+        # Main frame
+        frame = ttk.Frame(dialog, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Header
+        ttk.Label(
+            frame, 
+            text=f"Niedopasowane klucze ({len(self.unmatched_keys)}):",
+            font=('Segoe UI', 10, 'bold')
+        ).pack(fill=tk.X, pady=(0, 10))
+        
+        # Listbox with scrollbar
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Use Treeview for better styling than Listbox
+        tree = ttk.Treeview(
+            list_frame, 
+            columns=('key',), 
+            show='', 
+            yscrollcommand=scrollbar.set,
+            selectmode='extended'
+        )
+        tree.column('key', width=400)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar.config(command=tree.yview)
+        
+        # Populate
+        for key in self.unmatched_keys:
+            tree.insert('', tk.END, values=(str(key),))
+            
+        # Buttons
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def copy_to_clipboard():
+            keys_str = "\n".join(str(k) for k in self.unmatched_keys)
+            dialog.clipboard_clear()
+            dialog.clipboard_append(keys_str)
+            
+        ttk.Button(
+            btn_frame, text="Kopiuj do schowka",
+            command=copy_to_clipboard
+        ).pack(side=tk.LEFT)
+        
+        ttk.Button(
+            btn_frame, text="Zamknij",
+            command=dialog.destroy,
+            style='Accent.TButton'
+        ).pack(side=tk.RIGHT)
     
     def update_stats(self, matched: int, total: int, unmatched_keys: list = None):
         """Update match statistics display."""
