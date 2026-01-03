@@ -86,8 +86,8 @@ class PreviewPanel(ttk.LabelFrame):
             command=lambda: self.search_var.set('')
         ).pack(side=tk.LEFT)
         
-        # Limit checkbox + spinbox
-        self.limit_enabled_var = tk.BooleanVar(value=False)
+        # Limit checkbox + spinbox (enabled by default for performance)
+        self.limit_enabled_var = tk.BooleanVar(value=True)
         self.limit_check = ttk.Checkbutton(
             search_frame, text="Limit wierszy:",
             variable=self.limit_enabled_var,
@@ -95,13 +95,13 @@ class PreviewPanel(ttk.LabelFrame):
         )
         self.limit_check.pack(side=tk.LEFT, padx=(15, 5))
         
-        self.limit_var = tk.IntVar(value=500)
+        self.limit_var = tk.IntVar(value=250)
         self.limit_spinbox = ttk.Spinbox(
             search_frame, 
-            from_=50, to=10000, increment=50,
+            from_=50, to=2000, increment=50,
             textvariable=self.limit_var,
             width=8,
-            state='disabled',
+            state='normal',
             command=self._apply_filter
         )
         self.limit_spinbox.pack(side=tk.LEFT)
