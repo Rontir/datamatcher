@@ -364,6 +364,16 @@ class DataMatcher:
                 final_cols.append(c)
         
         result_df = result_df[final_cols]
+        
+        # --- Column Renaming (output_name alias) ---
+        rename_map = {}
+        for m in self.mapping_manager.mappings:
+            if m.output_name and m.output_name != m.target_column:
+                if m.target_column in result_df.columns:
+                    rename_map[m.target_column] = m.output_name
+        
+        if rename_map:
+            result_df = result_df.rename(columns=rename_map)
         # -------------------------------
         
         # Calculate stats

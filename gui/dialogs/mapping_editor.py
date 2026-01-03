@@ -310,9 +310,24 @@ class MappingEditorDialog(tk.Toplevel):
         self.new_col_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         self.new_col_frame.grid_remove()  # Hidden by default
         
+        # Output name (alias) - optional rename
+        ttk.Label(main_frame, text="Zmień nazwę kolumny (opcjonalnie):").grid(
+            row=8, column=0, sticky='w', pady=(0, 5)
+        )
+        
+        self.output_name_var = tk.StringVar()
+        self.output_name_entry = ttk.Entry(
+            main_frame, textvariable=self.output_name_var, width=45
+        )
+        self.output_name_entry.grid(row=9, column=0, columnspan=2, sticky='ew', pady=(0, 10))
+        
+        # Tooltip for output_name
+        from gui.widgets.tooltip import ToolTip
+        ToolTip(self.output_name_entry, "Jeśli chcesz zmienić nazwę kolumny w wyniku, wpisz nową nazwę. Zostaw puste aby użyć nazwy docelowej.")
+        
         # Write mode
         ttk.Label(main_frame, text="Tryb zapisu:").grid(
-            row=8, column=0, sticky='w', pady=(0, 5)
+            row=10, column=0, sticky='w', pady=(0, 5)
         )
         
         self.mode_var = tk.StringVar(value='overwrite')
@@ -324,11 +339,11 @@ class MappingEditorDialog(tk.Toplevel):
         self.mode_display_to_value = {display: value for value, display in modes}
         self.mode_combo['values'] = [display for _, display in modes]
         self.mode_combo.set(WriteMode.get_display_name(WriteMode.OVERWRITE))
-        self.mode_combo.grid(row=9, column=0, columnspan=2, sticky='ew', pady=(0, 15))
+        self.mode_combo.grid(row=11, column=0, columnspan=2, sticky='ew', pady=(0, 15))
         
         # Transform
         ttk.Label(main_frame, text="Transformacja:").grid(
-            row=10, column=0, sticky='w', pady=(0, 5)
+            row=12, column=0, sticky='w', pady=(0, 5)
         )
         
         self.transform_var = tk.StringVar(value='none')
@@ -340,16 +355,16 @@ class MappingEditorDialog(tk.Toplevel):
         self.transform_name_to_id = {name: tid for tid, name in transforms.items()}
         self.transform_combo['values'] = list(transforms.values())
         self.transform_combo.set(transforms['none'])
-        self.transform_combo.grid(row=11, column=0, columnspan=2, sticky='ew', pady=(0, 15))
+        self.transform_combo.grid(row=13, column=0, columnspan=2, sticky='ew', pady=(0, 15))
         
         # Separator
         ttk.Separator(main_frame, orient='horizontal').grid(
-            row=12, column=0, columnspan=2, sticky='ew', pady=10
+            row=14, column=0, columnspan=2, sticky='ew', pady=10
         )
         
         # Buttons - always at bottom
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=13, column=0, columnspan=2, sticky='ew')
+        btn_frame.grid(row=15, column=0, columnspan=2, sticky='ew')
         
         ttk.Button(
             btn_frame, text="Anuluj",
@@ -450,6 +465,9 @@ class MappingEditorDialog(tk.Toplevel):
             if self.mapping.transform in transforms:
                 self.transform_combo.set(transforms[self.mapping.transform])
         
+        # Output name (alias)
+        self.output_name_var.set(self.mapping.output_name or '')
+        
         # Clear suggestion when editing
         self.suggestion_label.config(text="")
     
@@ -504,6 +522,9 @@ class MappingEditorDialog(tk.Toplevel):
         if transform_id == 'none':
             transform_id = None
         
+        # Get output name (alias)
+        output_name = self.output_name_var.get().strip()
+        
         # Create or update mapping
         if self.mapping:
             self.mapping.source_id = source_id
@@ -513,6 +534,7 @@ class MappingEditorDialog(tk.Toplevel):
             self.mapping.target_is_new = target_is_new
             self.mapping.write_mode = WriteMode(mode_value)
             self.mapping.transform = transform_id
+            self.mapping.output_name = output_name
             self.result = self.mapping
         else:
             self.result = ColumnMapping(
@@ -522,7 +544,8 @@ class MappingEditorDialog(tk.Toplevel):
                 target_column=target,
                 target_is_new=target_is_new,
                 write_mode=WriteMode(mode_value),
-                transform=transform_id
+                transform=transform_id,
+                output_name=output_name
             )
         
         self.destroy()

@@ -161,6 +161,7 @@ class ColumnMapping:
     append_separator: str = " | "           # Separator dla trybu APPEND
     priority: int = 0                       # Kolejność wykonania
     enabled: bool = True                    # Czy mapowanie jest aktywne
+    output_name: str = ""                   # Custom output column name (if different from target_column)
     
     # Advanced: Template mode (combine multiple columns)
     source_template: str = ""               # e.g., "{Marka} - {Model}" (if set, overrides source_column)
@@ -211,6 +212,10 @@ class ColumnMapping:
         
         return result
     
+    def get_output_column_name(self) -> str:
+        """Get the actual output column name (uses output_name if set, else target_column)."""
+        return self.output_name if self.output_name else self.target_column
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -225,6 +230,7 @@ class ColumnMapping:
             'append_separator': self.append_separator,
             'priority': self.priority,
             'enabled': self.enabled,
+            'output_name': self.output_name,
             'source_template': self.source_template,
             'conditions': [c.to_dict() for c in self.conditions],
             'condition_logic': self.condition_logic,
@@ -253,6 +259,7 @@ class ColumnMapping:
             append_separator=data.get('append_separator', ' | '),
             priority=data.get('priority', 0),
             enabled=data.get('enabled', True),
+            output_name=data.get('output_name', ''),
             source_template=data.get('source_template', ''),
             conditions=conditions,
             condition_logic=data.get('condition_logic', 'AND'),
