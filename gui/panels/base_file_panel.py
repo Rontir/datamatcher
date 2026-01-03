@@ -177,6 +177,10 @@ class BaseFilePanel(ttk.LabelFrame):
             columns = self.data_source.get_columns()
             self.key_combo['values'] = columns
             
+            # Notify callback first (so MainApplication has the source)
+            if self.on_file_loaded:
+                self.on_file_loaded(self.data_source)
+            
             # Try to auto-detect key column
             suggested = detect_key_column(columns, self.data_source.dataframe)
             if suggested:
@@ -185,10 +189,6 @@ class BaseFilePanel(ttk.LabelFrame):
             
             # Enable preview
             self.preview_btn.config(state='normal')
-            
-            # Notify callback
-            if self.on_file_loaded:
-                self.on_file_loaded(self.data_source)
         
         def thread_target():
             result = load_task()

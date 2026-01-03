@@ -302,7 +302,7 @@ class MainApplication:
     def _on_base_key_changed(self, source: DataSource):
         """Handle base key column changed."""
         self._update_match_stats()
-        self._execute_preview()
+        self._set_status("Zmieniono klucz - kliknij 'Sugestie' lub 'Generuj podgląd'")
     
     def _on_source_added(self, source: DataSource):
         """Handle source added."""

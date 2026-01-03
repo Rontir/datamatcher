@@ -284,6 +284,9 @@ class MappingsPanel(ttk.LabelFrame):
                 self.mapping_manager.move_up(mapping.id)
                 self._refresh_tree()
                 self._notify_change()
+                
+                # Restore selection (new index is idx - 1)
+                self._select_index(idx - 1)
     
     def _move_down(self):
         """Move selected mapping down."""
@@ -298,6 +301,18 @@ class MappingsPanel(ttk.LabelFrame):
                 self.mapping_manager.move_down(mapping.id)
                 self._refresh_tree()
                 self._notify_change()
+                
+                # Restore selection (new index is idx + 1)
+                self._select_index(idx + 1)
+    
+    def _select_index(self, index: int):
+        """Select row by index."""
+        children = self.tree.get_children()
+        if 0 <= index < len(children):
+            item = children[index]
+            self.tree.selection_set(item)
+            self.tree.focus(item)
+            self.tree.see(item)
     
     def _undo(self):
         """Undo last change."""
