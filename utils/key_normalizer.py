@@ -39,8 +39,10 @@ def normalize_key(value: Any, options: Optional[Dict[str, Any]] = None) -> Optio
         return s
     
     # Remove .0 from floats (Excel often converts int to float)
-    if s.endswith('.0') and s[:-2].replace('-', '').isdigit():
-        s = s[:-2]
+    # Option: strip_decimal (defaults to True for backward compatibility)
+    if options.get('strip_decimal', True):
+        if s.endswith('.0') and s[:-2].replace('-', '').isdigit():
+            s = s[:-2]
     
     # Remove double spaces
     while '  ' in s:

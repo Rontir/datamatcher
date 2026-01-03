@@ -61,8 +61,23 @@ class SourceCard(ttk.Frame):
         ToolTip(self.key_combo, "Kolumna klucza do dopasowywania z plikiem bazowym")
         
         # Match stats
-        self.stats_label = ttk.Label(self, text="Dopasowano: -/-")
-        self.stats_label.pack(anchor='w')
+        stats_frame = ttk.Frame(self)
+        stats_frame.pack(anchor='w', fill=tk.X)
+        
+        self.stats_label = ttk.Label(stats_frame, text="Dopasowano: -/-")
+        self.stats_label.pack(side=tk.LEFT)
+        
+        # Unmatched link (clickable)
+        self.unmatched_link = ttk.Label(
+            stats_frame, 
+            text="", 
+            foreground='red', 
+            cursor='hand2'
+        )
+        self.unmatched_link.pack(side=tk.LEFT, padx=(10, 0))
+        self.unmatched_link.bind('<Button-1>', self._show_unmatched)
+        
+        self.unmatched_keys = []  # Store for preview
         
         # Buttons
         btn_frame = ttk.Frame(self)
@@ -101,10 +116,37 @@ class SourceCard(ttk.Frame):
         if self.on_remove_callback:
             self.on_remove_callback(self.source)
     
-    def update_stats(self, matched: int, total: int):
+    def _show_unmatched(self, event=None):
+        """Show dialog with unmatched keys."""
+        if not self.unmatched_keys:
+            return
+        
+        from tkinter import messagebox
+        # Show first 20 unmatched keys
+        sample = self.unmatched_keys[:20]
+        msg = f"Niedopasowane klucze ({len(self.unmatched_keys)} łącznie):\n\n"
+        msg += "\n".join(str(k) for k in sample)
+        if len(self.unmatched_keys) > 20:
+            msg += f"\n... i {len(self.unmatched_keys) - 20} więcej"
+        
+        messagebox.showinfo(f"Niedopasowane: {self.source.filename}", msg)
+    
+    def update_stats(self, matched: int, total: int, unmatched_keys: list = None):
         """Update match statistics display."""
         pct = (matched / total * 100) if total > 0 else 0
+        unmatched = total - matched
+        
         self.stats_label.config(text=f"Dopasowano: {matched:,} / {total:,} ({pct:.1f}%)")
+        
+        # Store unmatched keys for preview
+        self.unmatched_keys = unmatched_keys or []
+        
+        # Update unmatched link
+        if unmatched > 0:
+            self.unmatched_link.config(text=f"⚠️ Niedopasowane: {unmatched:,} (kliknij)")
+        else:
+            self.unmatched_link.config(text="✅ Wszystkie dopasowane")
+            self.unmatched_link.config(foreground='green')
         
         # Color based on match rate
         if pct >= 90:
@@ -352,7 +394,8 @@ class SourcesPanel(ttk.LabelFrame):
             if source_id in self.source_cards:
                 self.source_cards[source_id].update_stats(
                     stats['matched'],
-                    stats['total_base']
+                    stats['total_base'],
+                    stats.get('unmatched_keys', [])
                 )
     
     def get_sources(self) -> Dict[str, DataSource]:

@@ -136,10 +136,11 @@ class DataSource:
                 return row_data.get(column)
         return None
     
-    def calculate_match_stats(self, base_keys: List[str]) -> Dict[str, int]:
+    def calculate_match_stats(self, base_keys: List[str]) -> Dict[str, Any]:
         """Calculate how many base keys match this source."""
         matched = 0
         unmatched = 0
+        unmatched_keys = []
         
         for key in base_keys:
             normalized = normalize_key(key, self.key_options)
@@ -147,10 +148,12 @@ class DataSource:
                 matched += 1
             else:
                 unmatched += 1
+                unmatched_keys.append(key)
         
         self.match_stats = {
             'matched': matched,
             'unmatched': unmatched,
+            'unmatched_keys': unmatched_keys,
             'total_base': len(base_keys),
             'match_percent': (matched / len(base_keys) * 100) if base_keys else 0
         }
