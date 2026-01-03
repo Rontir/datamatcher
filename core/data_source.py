@@ -89,16 +89,30 @@ class DataSource:
         if self.dataframe is None or not self.key_column:
             return
             
-        # Check if column is object/string type and has .0
-        # We sample first 100 non-null values to be fast
         col_data = self.dataframe[self.key_column]
-        sample = col_data.dropna().head(100).astype(str)
         
-        if any(s.endswith('.0') for s in sample):
-            # Apply fix to whole column
-            # Convert to string and strip .0
-            # This modifies the dataframe in place!
-            self.dataframe[self.key_column] = col_data.astype(str).str.replace(r'\.0$', '', regex=True)
+        # If float, convert to nullable int then string (safest way to remove .0)
+        import pandas as pd
+        import numpy as np
+        
+        if pd.api.types.is_float_dtype(col_data):
+            # Convert to Int64 (nullable int) to handle NaNs correctly
+            # Then to string. This automatically removes .0
+            try:
+                # Round first to be safe? No, user wants integer matching.
+                # But if it's 123.9, maybe they want 123 or 124? 
+                # Usually it's 123.0.
+                self.dataframe[self.key_column] = col_data.astype('Int64').astype(str).replace('<NA>', 'nan')
+                return
+            except Exception:
+                # Fallback if conversion fails
+                pass
+
+        # If object/string, check for .0 suffix
+        # Check entire column (vectorized is fast)
+        s_data = col_data.astype(str)
+        if s_data.str.endswith('.0').any():
+            self.dataframe[self.key_column] = s_data.str.replace(r'\.0$', '', regex=True)
     
     def build_key_lookup(self, force: bool = False):
         """Build a dictionary mapping normalized keys to row data.
@@ -160,6 +174,11 @@ class DataSource:
         unmatched_keys = []
         
         for key in base_keys:
+            # Skip empty keys or 'nan' strings
+            s_key = str(key)
+            if not s_key or s_key.lower() == 'nan':
+                continue
+                
             normalized = normalize_key(key, self.key_options)
             if normalized in self._key_lookup and self._key_lookup[normalized] is not None:
                 matched += 1

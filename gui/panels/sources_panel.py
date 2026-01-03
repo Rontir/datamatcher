@@ -151,6 +151,9 @@ class SourceCard(ttk.Frame):
 
         for key in self.unmatched_keys:
             s_key = str(key)
+            if not s_key or s_key.lower() == 'nan':
+                continue
+                
             # Try stripping .0
             if s_key.endswith('.0'):
                 fixed = s_key[:-2]
