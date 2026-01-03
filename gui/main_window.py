@@ -395,6 +395,19 @@ class MainApplication:
         if not self.matcher.base_source or not self.matcher.base_source.key_column:
             return
         
+        # Get current key_options from UI and propagate to sources
+        key_options = {
+            'case_insensitive': self.case_insensitive_var.get(),
+            'strip_leading_zeros': self.strip_zeros_var.get(),
+            'strip_decimal': self.strip_decimal_var.get(),
+            'normalize_paths': self.normalize_paths_var.get()
+        }
+        
+        # Update each source with current options and rebuild key_lookup
+        for source in self.sources_panel.get_sources().values():
+            source.key_options = key_options.copy()
+            source.build_key_lookup(force=True)
+        
         base_keys = list(self.matcher.base_source.dataframe[
             self.matcher.base_source.key_column
         ].dropna().astype(str))

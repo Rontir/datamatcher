@@ -16,6 +16,21 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# === WINDOWS DPI AWARENESS ===
+# This must be called BEFORE any tkinter imports
+import ctypes
+try:
+    # Windows 8.1+ Per-Monitor DPI awareness
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except AttributeError:
+    try:
+        # Windows 7/8 System DPI awareness
+        ctypes.windll.user32.SetProcessDPIAware()
+    except AttributeError:
+        pass  # Not on Windows
+except Exception:
+    pass  # Ignore errors (e.g., already set)
+
 
 def run_headless(config_path: str, output_path: str, verbose: bool = False):
     """Run DataMatcher in headless/CLI mode."""
