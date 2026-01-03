@@ -197,11 +197,68 @@ class SourcesPanel(ttk.LabelFrame):
         )
         
         for filepath in filepaths:
-            self.add_source_from_path(filepath)
+            self._add_source_threaded(filepath)
+    
+    def _add_source_threaded(self, filepath: str, sheet: Optional[str] = None,
+                              key_column: Optional[str] = None):
+        """Add source in background thread with loading indicator."""
+        # Show loading state
+        self.add_btn.config(state='disabled', text="⏳ Wczytywanie...")
+        
+        import threading
+        
+        def load_task():
+            try:
+                source = DataSource(filepath=filepath)
+                source.load(sheet)
+                
+                # Auto-detect key column
+                if not key_column:
+                    columns = source.get_columns()
+                    detected_key = detect_key_column(columns, source.dataframe)
+                else:
+                    detected_key = key_column
+                    
+                if detected_key:
+                    source.set_key_column(detected_key)
+                
+                return (source, None)
+            except Exception as e:
+                return (None, str(e))
+        
+        def on_complete(result):
+            source, error = result
+            
+            # Restore button
+            self.add_btn.config(state='normal', text="➕ Dodaj źródło...")
+            
+            if error:
+                from tkinter import messagebox
+                messagebox.showerror("Błąd", f"Nie można wczytać źródła:\n{error}")
+                return
+            
+            # Add to sources
+            self.sources[source.id] = source
+            
+            # Create card
+            self._create_source_card(source)
+            
+            # Hide empty label
+            self.empty_label.pack_forget()
+            
+            # Notify callback
+            if self.on_source_added:
+                self.on_source_added(source)
+        
+        def thread_target():
+            result = load_task()
+            self.after(0, lambda: on_complete(result))
+        
+        threading.Thread(target=thread_target, daemon=True).start()
     
     def add_source_from_path(self, filepath: str, sheet: Optional[str] = None, 
                               key_column: Optional[str] = None) -> Optional[DataSource]:
-        """Add a source from file path."""
+        """Add a source from file path (public API - synchronous for session restore)."""
         try:
             source = DataSource(filepath=filepath)
             source.load(sheet)
