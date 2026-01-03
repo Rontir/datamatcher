@@ -25,6 +25,7 @@ class SourceCard(ttk.Frame):
         self.on_key_changed_callback = on_key_changed
         self.on_preview_callback = on_preview
         self.on_remove_callback = on_remove
+        self.base_keys = set()  # Store base keys for analysis
         
         self._create_widgets()
     
@@ -124,7 +125,7 @@ class SourceCard(ttk.Frame):
         # Custom dialog window
         dialog = tk.Toplevel(self)
         dialog.title(f"Niedopasowane: {self.source.filename}")
-        dialog.geometry("500x600")
+        dialog.geometry("700x600")
         
         # Main frame
         frame = ttk.Frame(dialog, padding=10)
@@ -137,6 +138,30 @@ class SourceCard(ttk.Frame):
             font=('Segoe UI', 10, 'bold')
         ).pack(fill=tk.X, pady=(0, 10))
         
+        # Analysis logic
+        fixable_map = {}  # key -> fixed_key
+        
+        for key in self.unmatched_keys:
+            s_key = str(key)
+            # Try stripping .0
+            if s_key.endswith('.0'):
+                fixed = s_key[:-2]
+                if fixed in self.base_keys:
+                    fixable_map[key] = fixed
+                    continue
+            
+            # Try stripping whitespace
+            fixed = s_key.strip()
+            if fixed != s_key and fixed in self.base_keys:
+                fixable_map[key] = fixed
+                continue
+                
+            # Try lowercase
+            fixed = s_key.lower()
+            if fixed != s_key and fixed in self.base_keys:
+                fixable_map[key] = fixed
+                continue
+        
         # Listbox with scrollbar
         list_frame = ttk.Frame(frame)
         list_frame.pack(fill=tk.BOTH, expand=True)
@@ -147,19 +172,26 @@ class SourceCard(ttk.Frame):
         # Use Treeview for better styling than Listbox
         tree = ttk.Treeview(
             list_frame, 
-            columns=('key',), 
-            show='', 
+            columns=('key', 'fix'), 
+            show='headings', 
             yscrollcommand=scrollbar.set,
             selectmode='extended'
         )
-        tree.column('key', width=400)
+        tree.heading('key', text="Klucz źródłowy")
+        tree.heading('fix', text="Proponowana naprawa")
+        tree.column('key', width=300)
+        tree.column('fix', width=300)
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         scrollbar.config(command=tree.yview)
         
         # Populate
         for key in self.unmatched_keys:
-            tree.insert('', tk.END, values=(str(key),))
+            fix = fixable_map.get(key, "")
+            tags = ('fixable',) if fix else ()
+            tree.insert('', tk.END, values=(str(key), fix), tags=tags)
+            
+        tree.tag_configure('fixable', foreground='green')
             
         # Buttons
         btn_frame = ttk.Frame(frame)
@@ -170,10 +202,57 @@ class SourceCard(ttk.Frame):
             dialog.clipboard_clear()
             dialog.clipboard_append(keys_str)
             
+        def fix_selected():
+            selected_items = tree.selection()
+            if not selected_items:
+                # If nothing selected, select all fixable
+                all_items = tree.get_children()
+                selected_items = [item for item in all_items if tree.item(item)['values'][1]]
+            
+            if not selected_items:
+                from tkinter import messagebox
+                messagebox.showinfo("Info", "Brak kluczy do naprawy.")
+                return
+            
+            count = 0
+            # Apply fixes
+            df = self.source.dataframe
+            key_col = self.source.key_column
+            
+            for item in selected_items:
+                values = tree.item(item)['values']
+                original = values[0]
+                fixed = values[1]
+                
+                if fixed:
+                    # Update dataframe
+                    # Note: This is a bit slow for many rows, but safe
+                    # Assuming original is unique or we update all occurrences
+                    mask = df[key_col].astype(str) == original
+                    df.loc[mask, key_col] = fixed
+                    count += 1
+            
+            if count > 0:
+                # Rebuild index and refresh
+                self.source.build_key_lookup(force=True)
+                if self.on_key_changed_callback:
+                    self.on_key_changed_callback(self.source)
+                
+                dialog.destroy()
+                from tkinter import messagebox
+                messagebox.showinfo("Sukces", f"Naprawiono {count} kluczy.")
+        
         ttk.Button(
             btn_frame, text="Kopiuj do schowka",
             command=copy_to_clipboard
         ).pack(side=tk.LEFT)
+        
+        if fixable_map:
+            ttk.Button(
+                btn_frame, text=f"🔧 Napraw możliwe ({len(fixable_map)})",
+                command=fix_selected,
+                style='success.TButton'
+            ).pack(side=tk.LEFT, padx=10)
         
         ttk.Button(
             btn_frame, text="Zamknij",
@@ -181,7 +260,7 @@ class SourceCard(ttk.Frame):
             style='Accent.TButton'
         ).pack(side=tk.RIGHT)
     
-    def update_stats(self, matched: int, total: int, unmatched_keys: list = None):
+    def update_stats(self, matched: int, total: int, unmatched_keys: list = None, base_keys: list = None):
         """Update match statistics display."""
         pct = (matched / total * 100) if total > 0 else 0
         unmatched = total - matched
@@ -190,6 +269,10 @@ class SourceCard(ttk.Frame):
         
         # Store unmatched keys for preview
         self.unmatched_keys = unmatched_keys or []
+        
+        # Store base keys for analysis
+        if base_keys:
+            self.base_keys = set(base_keys)
         
         # Update unmatched link
         if unmatched > 0:
@@ -445,7 +528,8 @@ class SourcesPanel(ttk.LabelFrame):
                 self.source_cards[source_id].update_stats(
                     stats['matched'],
                     stats['total_base'],
-                    stats.get('unmatched_keys', [])
+                    stats.get('unmatched_keys', []),
+                    base_keys
                 )
     
     def get_sources(self) -> Dict[str, DataSource]:
