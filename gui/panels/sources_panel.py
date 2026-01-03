@@ -141,6 +141,14 @@ class SourceCard(ttk.Frame):
         # Analysis logic
         fixable_map = {}  # key -> fixed_key
         
+        # Debug prints
+        print(f"DEBUG: Unmatched keys count: {len(self.unmatched_keys)}")
+        print(f"DEBUG: Base keys count: {len(self.base_keys)}")
+        if self.base_keys:
+            print(f"DEBUG: Sample base key: {list(self.base_keys)[0]} (type: {type(list(self.base_keys)[0])})")
+        if self.unmatched_keys:
+            print(f"DEBUG: Sample unmatched key: {self.unmatched_keys[0]} (type: {type(self.unmatched_keys[0])})")
+
         for key in self.unmatched_keys:
             s_key = str(key)
             # Try stripping .0
@@ -253,6 +261,77 @@ class SourceCard(ttk.Frame):
                 command=fix_selected,
                 style='success.TButton'
             ).pack(side=tk.LEFT, padx=10)
+            
+        # Manual fix buttons (Force Fix)
+        force_frame = ttk.LabelFrame(frame, text="Wymuś naprawę (wszystkie niedopasowane)", padding=5)
+        force_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def force_fix_dot_zero():
+            count = 0
+            df = self.source.dataframe
+            key_col = self.source.key_column
+            
+            # Get all unmatched keys that end with .0
+            targets = [k for k in self.unmatched_keys if str(k).endswith('.0')]
+            
+            if not targets:
+                from tkinter import messagebox
+                messagebox.showinfo("Info", "Brak kluczy z końcówką .0")
+                return
+                
+            for key in targets:
+                s_key = str(key)
+                fixed = s_key[:-2]
+                
+                mask = df[key_col].astype(str) == s_key
+                df.loc[mask, key_col] = fixed
+                count += 1
+            
+            if count > 0:
+                self.source.build_key_lookup(force=True)
+                if self.on_key_changed_callback:
+                    self.on_key_changed_callback(self.source)
+                dialog.destroy()
+                from tkinter import messagebox
+                messagebox.showinfo("Sukces", f"Naprawiono {count} kluczy (usunięto .0).")
+
+        ttk.Button(
+            force_frame, text="Usuń końcówki .0",
+            command=force_fix_dot_zero
+        ).pack(side=tk.LEFT, padx=5)
+        
+        def force_fix_whitespace():
+            count = 0
+            df = self.source.dataframe
+            key_col = self.source.key_column
+            
+            targets = [k for k in self.unmatched_keys if str(k).strip() != str(k)]
+            
+            if not targets:
+                from tkinter import messagebox
+                messagebox.showinfo("Info", "Brak kluczy ze spacjami do usunięcia")
+                return
+
+            for key in targets:
+                s_key = str(key)
+                fixed = s_key.strip()
+                
+                mask = df[key_col].astype(str) == s_key
+                df.loc[mask, key_col] = fixed
+                count += 1
+                
+            if count > 0:
+                self.source.build_key_lookup(force=True)
+                if self.on_key_changed_callback:
+                    self.on_key_changed_callback(self.source)
+                dialog.destroy()
+                from tkinter import messagebox
+                messagebox.showinfo("Sukces", f"Naprawiono {count} kluczy (usunięto spacje).")
+
+        ttk.Button(
+            force_frame, text="Usuń spacje (trim)",
+            command=force_fix_whitespace
+        ).pack(side=tk.LEFT, padx=5)
         
         ttk.Button(
             btn_frame, text="Zamknij",
