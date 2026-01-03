@@ -164,7 +164,7 @@ class MainApplication:
         self.main_frame = ttk.Frame(self.root, padding=10)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Top section (base file + sources)
+        # Top section (base file + sources) - fixed height
         top_frame = ttk.Frame(self.main_frame)
         top_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -185,16 +185,20 @@ class MainApplication:
         )
         self.sources_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
         
-        # Middle section (mappings)
+        # === RESIZABLE PANED WINDOW for mappings and preview ===
+        self.paned = ttk.PanedWindow(self.main_frame, orient=tk.VERTICAL)
+        self.paned.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Middle section (mappings) - in paned window
         self.mappings_panel = MappingsPanel(
-            self.main_frame,
+            self.paned,
             on_mapping_changed=self._on_mapping_changed
         )
-        self.mappings_panel.pack(fill=tk.X, pady=(0, 10))
+        self.paned.add(self.mappings_panel, weight=1)
         
-        # Bottom section (preview)
-        self.preview_panel = PreviewPanel(self.main_frame)
-        self.preview_panel.pack(fill=tk.BOTH, expand=True)
+        # Bottom section (preview) - in paned window, gets more weight
+        self.preview_panel = PreviewPanel(self.paned)
+        self.paned.add(self.preview_panel, weight=3)
         self.preview_panel.set_refresh_callback(self._execute_preview)
         
         # Action buttons

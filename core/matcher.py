@@ -191,6 +191,12 @@ class DataMatcher:
         total_rows = len(result_df)
         enabled_mappings = self.mapping_manager.get_enabled()
         
+        # IMPORTANT: Propagate current key_options to all sources and rebuild their key_lookup
+        # This ensures normalization settings (strip_decimal, normalize_paths, etc.) are applied
+        for source in self.data_sources.values():
+            source.key_options = self.key_options.copy()
+            source.build_key_lookup(force=True)  # Force rebuild with new options
+        
         # Check which keys can be matched to any source
         all_matched_keys: set = set()
         for source in self.data_sources.values():
