@@ -288,12 +288,21 @@ class SourceCard(ttk.Frame):
                 count += 1
             
             if count > 0:
+                # Rebuild index
                 self.source.build_key_lookup(force=True)
+                
+                # Close dialog first
+                dialog.destroy()
+                
+                # Notify main window to refresh stats
                 if self.on_key_changed_callback:
                     self.on_key_changed_callback(self.source)
-                dialog.destroy()
+                
+                # Force UI update
+                self.update_idletasks()
+                
                 from tkinter import messagebox
-                messagebox.showinfo("Sukces", f"Naprawiono {count} kluczy (usunięto .0).")
+                messagebox.showinfo("Sukces", f"Naprawiono {count} kluczy (usunięto .0).\nStatystyki zostały zaktualizowane.")
 
         ttk.Button(
             force_frame, text="Usuń końcówki .0",
@@ -321,12 +330,21 @@ class SourceCard(ttk.Frame):
                 count += 1
                 
             if count > 0:
+                # Rebuild index
                 self.source.build_key_lookup(force=True)
+                
+                # Close dialog first
+                dialog.destroy()
+                
+                # Notify main window to refresh stats
                 if self.on_key_changed_callback:
                     self.on_key_changed_callback(self.source)
-                dialog.destroy()
+                
+                # Force UI update
+                self.update_idletasks()
+                
                 from tkinter import messagebox
-                messagebox.showinfo("Sukces", f"Naprawiono {count} kluczy (usunięto spacje).")
+                messagebox.showinfo("Sukces", f"Naprawiono {count} kluczy (usunięto spacje).\nStatystyki zostały zaktualizowane.")
 
         ttk.Button(
             force_frame, text="Usuń spacje (trim)",

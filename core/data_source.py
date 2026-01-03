@@ -80,8 +80,25 @@ class DataSource:
         """Set the key column and rebuild lookup."""
         if column != self.key_column:  # Only rebuild if changed
             self.key_column = column
+            self._auto_clean_key_column()
             self._key_lookup_built = False
             self.build_key_lookup()
+    
+    def _auto_clean_key_column(self):
+        """Automatically clean key column if it contains .0 suffixes."""
+        if self.dataframe is None or not self.key_column:
+            return
+            
+        # Check if column is object/string type and has .0
+        # We sample first 100 non-null values to be fast
+        col_data = self.dataframe[self.key_column]
+        sample = col_data.dropna().head(100).astype(str)
+        
+        if any(s.endswith('.0') for s in sample):
+            # Apply fix to whole column
+            # Convert to string and strip .0
+            # This modifies the dataframe in place!
+            self.dataframe[self.key_column] = col_data.astype(str).str.replace(r'\.0$', '', regex=True)
     
     def build_key_lookup(self, force: bool = False):
         """Build a dictionary mapping normalized keys to row data.
