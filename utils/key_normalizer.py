@@ -57,6 +57,23 @@ def normalize_key(value: Any, options: Optional[Dict[str, Any]] = None) -> Optio
         stripped = s.lstrip('0')
         s = stripped if stripped else '0'
     
+    # Normalize paths (for category/structure matching)
+    # Converts "Elektronika > TV > Telewizory" → "elektronika/tv/telewizory"
+    if options.get('normalize_paths', False):
+        import re
+        # Remove quotes
+        s = s.replace('"', '').replace("'", '')
+        # Convert separators to /
+        s = s.replace(' > ', '/').replace('>', '/').replace(' / ', '/').replace('\\', '/')
+        # Remove spaces
+        s = s.replace(' ', '')
+        # Lowercase
+        s = s.lower()
+        # Remove multiple slashes
+        s = re.sub(r'/+', '/', s)
+        # Strip leading/trailing slashes
+        s = s.strip('/')
+    
     return s
 
 

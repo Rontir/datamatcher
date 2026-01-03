@@ -129,6 +129,14 @@ class MainApplication:
         self.strip_decimal_var = tk.BooleanVar(value=True)  # Default ON - common issue
         settings_menu.add_checkbutton(label="Normalizuj do liczby całkowitej (usuń .0)", variable=self.strip_decimal_var)
         
+        settings_menu.add_separator()
+        
+        self.normalize_paths_var = tk.BooleanVar(value=False)  # Default OFF - specialized use
+        settings_menu.add_checkbutton(
+            label="🗂️ Tryb struktur/kategorii (normalizuj ścieżki)", 
+            variable=self.normalize_paths_var
+        )
+        
         # Theme submenu (if ttkbootstrap available)
         if HAS_TTKBOOTSTRAP:
             theme_menu = tk.Menu(tools_menu, tearoff=0)
@@ -408,7 +416,8 @@ class MainApplication:
             self.matcher.key_options = {
                 'case_insensitive': self.case_insensitive_var.get(),
                 'strip_leading_zeros': self.strip_zeros_var.get(),
-                'strip_decimal': self.strip_decimal_var.get()
+                'strip_decimal': self.strip_decimal_var.get(),
+                'normalize_paths': self.normalize_paths_var.get()
             }
             
             # Apply batch filter if set
