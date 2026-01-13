@@ -181,11 +181,12 @@ class DataMatcher:
         if not self.mapping_manager.mappings:
             raise ValueError("No mappings defined")
         
-        # Create a copy of the base dataframe
         result_df = self.base_source.dataframe.copy()
         changes: List[CellChange] = []
         unmatched_keys: set = set()
         validation_warnings: List[str] = []
+        self._duplicate_conflicts = []  # Clear conflicts at start
+
         
         base_key_col = self.base_source.key_column
         total_rows = len(result_df)
@@ -262,10 +263,22 @@ class DataMatcher:
                     if num_conflicts > 0:
                         if not hasattr(self, '_duplicate_conflicts'):
                             self._duplicate_conflicts = []
+                        
+                        # Get all rows with data for this key
+                        all_rows = source.get_all_rows_for_key(str(raw_key))
+                        rows_with_data = [
+                            r for r in all_rows 
+                            if r.get(mapping.source_column) is not None 
+                            and str(r.get(mapping.source_column)).strip() 
+                            and str(r.get(mapping.source_column)).lower() != 'nan'
+                        ]
+                        
                         self._duplicate_conflicts.append({
                             'key': str(raw_key),
                             'column': mapping.source_column,
-                            'alternatives': num_conflicts
+                            'target_column': mapping.target_column,
+                            'row_index': row_idx,
+                            'rows': rows_with_data
                         })
                 
                 if not source_row_data:

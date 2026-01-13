@@ -524,6 +524,13 @@ class MainApplication:
         """Called when execution completes successfully."""
         self.current_result = result
         
+        # Check for duplicate conflicts - SMART RESOLVER
+        if hasattr(self.matcher, '_duplicate_conflicts') and self.matcher._duplicate_conflicts:
+            from gui.dialogs.conflict_resolver import ConflictResolverDialog
+            dialog = ConflictResolverDialog(self.root, self.matcher._duplicate_conflicts, result.result_df)
+            self.root.wait_window(dialog)
+            # After dialog, the result.result_df is updated
+        
         self.preview_panel.set_preview_data(result.result_df, result.changes)
         self.preview_panel.update_stats(result.stats)
         
@@ -532,7 +539,12 @@ class MainApplication:
         if batch_filter and batch_filter.enabled:
             filter_info = f" [Filtr: {batch_filter.get_description()}]"
         
-        self._set_status(f"Podgląd gotowy - sprawdź wyniki i zapisz{filter_info}")
+        # Show conflict info in status if any were resolved
+        conflict_info = ""
+        if hasattr(self.matcher, '_duplicate_conflicts') and self.matcher._duplicate_conflicts:
+            conflict_info = f" ({len(self.matcher._duplicate_conflicts)} konfliktów rozwiązano)"
+        
+        self._set_status(f"Podgląd gotowy - sprawdź wyniki i zapisz{filter_info}{conflict_info}")
         self._set_progress(100)
         self._reset_buttons()
     
