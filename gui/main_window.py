@@ -150,6 +150,18 @@ class MainApplication:
             command=self._on_settings_changed
         )
         
+        settings_menu.add_separator()
+        
+        # FUZZY MATCHING - Better than VLOOKUP!
+        self.fuzzy_matching_var = tk.BooleanVar(value=False)  # Default OFF
+        settings_menu.add_checkbutton(
+            label="🔍 Dopasowanie przybliżone (fuzzy matching)", 
+            variable=self.fuzzy_matching_var,
+            command=self._on_settings_changed
+        )
+        
+        # Fuzzy threshold slider would be nice but for now use 0.85 default
+        
         # Theme submenu (if ttkbootstrap available)
         if HAS_TTKBOOTSTRAP:
             theme_menu = tk.Menu(tools_menu, tearoff=0)
@@ -459,7 +471,8 @@ class MainApplication:
                 'case_insensitive': self.case_insensitive_var.get(),
                 'strip_leading_zeros': self.strip_zeros_var.get(),
                 'strip_decimal': self.strip_decimal_var.get(),
-                'normalize_paths': self.normalize_paths_var.get()
+                'normalize_paths': self.normalize_paths_var.get(),
+                'fuzzy_threshold': 0.85 if self.fuzzy_matching_var.get() else 1.0  # Better than VLOOKUP!
             }
             
             # Apply batch filter if set

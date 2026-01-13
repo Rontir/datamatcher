@@ -197,6 +197,10 @@ class DataMatcher:
             source.key_options = self.key_options.copy()
             source.build_key_lookup(force=True)  # Force rebuild with new options
         
+        # CRITICAL: Also propagate to base_source for consistent key normalization
+        self.base_source.key_options = self.key_options.copy()
+
+        
         # Check which keys can be matched to any source
         all_matched_keys: set = set()
         for source in self.data_sources.values():
@@ -234,7 +238,35 @@ class DataMatcher:
                     result_df[mapping.target_column] = np.nan
                 
                 # Get source row data for this key
-                source_row_data = source.get_key_lookup().get(normalized_key, {})
+                # SMART DUPLICATE HANDLING: Use get_best_row_for_key to find row with data
+                fuzzy_threshold = self.key_options.get('fuzzy_threshold', 1.0)  # 1.0 = exact only
+                num_conflicts = 0
+                
+                if fuzzy_threshold < 1.0:
+                    # Use fuzzy matching
+                    source_row_data, match_score, matched_key = source.get_row_for_key_fuzzy(
+                        str(raw_key), 
+                        threshold=fuzzy_threshold
+                    )
+                    source_row_data = source_row_data or {}
+                else:
+                    # IMPROVED: Use smart duplicate handling
+                    # Get the best row that has data for the target column we're mapping
+                    source_row_data, num_conflicts = source.get_best_row_for_key(
+                        str(raw_key), 
+                        mapping.source_column
+                    )
+                    source_row_data = source_row_data or {}
+                    
+                    # Track conflicts for reporting
+                    if num_conflicts > 0:
+                        if not hasattr(self, '_duplicate_conflicts'):
+                            self._duplicate_conflicts = []
+                        self._duplicate_conflicts.append({
+                            'key': str(raw_key),
+                            'column': mapping.source_column,
+                            'alternatives': num_conflicts
+                        })
                 
                 if not source_row_data:
                     # No match in this source
