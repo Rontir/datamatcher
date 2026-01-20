@@ -195,7 +195,20 @@ class DataSource:
                     rows = self._key_all_rows.get(orig_key)
                     if rows:
                         all_combined_rows.extend(rows)
+                        all_combined_rows.extend(rows)
                 return all_combined_rows
+        
+        # Try fallback: Zero Padding (EAN-13 support)
+        # If input is '12356' but source has '012356', and stripping didn't work (maybe source key is complex)
+        # We try adding zeros explicitly.
+        if normalized and normalized.isdigit() and len(normalized) < 14:
+            # Try adding zeros up to typical identifier lengths (e.g. 13, 14, or just general padding)
+            # We try padding up to 5 zeros deep or up to 14 chars total
+            current_pad = "0" + normalized
+            while len(current_pad) <= 14 and len(current_pad) <= len(normalized) + 5:
+                if current_pad in self._key_all_rows:
+                    return self._key_all_rows[current_pad]
+                current_pad = "0" + current_pad
                 
         return []
     
@@ -296,6 +309,16 @@ class DataSource:
                 row_data = self._key_lookup.get(orig_key)
                 if row_data:
                     return row_data, 1.0, orig_key
+        
+        # Try fallback: Zero Padding (EAN-13 support) - Explicit check
+        if normalized and normalized.isdigit() and len(normalized) < 14:
+            current_pad = "0" + normalized
+            while len(current_pad) <= 14 and len(current_pad) <= len(normalized) + 5:
+                if current_pad in self._key_lookup:
+                     row_data = self._key_lookup[current_pad]
+                     if row_data is not None:
+                         return row_data, 1.0, current_pad
+                current_pad = "0" + current_pad
         
         # Fallback to fuzzy matching
         if normalized and threshold < 1.0:
