@@ -117,10 +117,10 @@ class DataSource:
     def build_key_lookup(self, force: bool = False):
         """Build a dictionary mapping normalized keys to row data.
         
-        SMART DUPLICATE HANDLING:
-        - Stores ALL rows for each key (not just first/last)
-        - During matching, the best row is selected based on target column availability
-        - This is BETTER than VLOOKUP which only takes the first match
+        AGGRESSIVE EAN MATCHING:
+        - For each source key, we index MULTIPLE VARIANTS (stripped, padded)
+        - This ensures ANY format of base key will find a match
+        - This is the CORRECT way: transform the INDEX, not the query
         """
         if self.dataframe is None or not self.key_column:
             self._key_lookup = {}
@@ -131,107 +131,92 @@ class DataSource:
             return
         
         self._key_lookup = {}
-        self._key_all_rows = {}  # NEW: Store ALL rows for each key
-        self._key_stripped_fallback = {}  # NEW: Map stripped keys -> list of actual keys
-        
-        strip_zeros_enabled = self.key_options.get('strip_leading_zeros', False)
+        self._key_all_rows = {}  # Store ALL rows for each key
         
         for idx, row in self.dataframe.iterrows():
             raw_key = row.get(self.key_column)
-            normalized = normalize_key(raw_key, self.key_options)
             
-            if normalized is None:
-                continue  # Skip empty keys
+            # Minimal cleanup for source keys (only .0 removal, whitespace)
+            # DON'T apply strip_leading_zeros here - variants will handle it
+            if raw_key is None or (isinstance(raw_key, float) and pd.isna(raw_key)):
+                continue
+            
+            # Convert to string and clean
+            key_str = str(raw_key).strip()
+            if not key_str or key_str.lower() == 'nan':
+                continue
+                
+            # Remove Excel's .0 suffix on numbers
+            if key_str.endswith('.0') and key_str[:-2].replace('-', '').isdigit():
+                key_str = key_str[:-2]
             
             row_dict = row.to_dict()
             
-            # Store in all_rows list
-            if normalized not in self._key_all_rows:
-                self._key_all_rows[normalized] = []
-            self._key_all_rows[normalized].append(row_dict)
+            # Generate ALL EAN variants of this source key
+            # This handles: stripped, padded to 13, padded to 14, etc.
+            key_variants = self._generate_ean_variants(key_str)
             
-            # For backward compatibility, _key_lookup stores first row
-            if normalized not in self._key_lookup:
-                self._key_lookup[normalized] = row_dict
-            
-            # Populate stripped fallback if needed
-            # (If strip_zeros is already ON, we don't need this as normalized key is already stripped)
-            if not strip_zeros_enabled and normalized:
-                # Force strip zeros for the fallback key
-                stripped_key = normalized.lstrip('0')
-                if not stripped_key: stripped_key = '0'
+            for variant in key_variants:
+                # Store in all_rows list for each variant
+                if variant not in self._key_all_rows:
+                    self._key_all_rows[variant] = []
+                self._key_all_rows[variant].append(row_dict)
                 
-                if stripped_key not in self._key_stripped_fallback:
-                    self._key_stripped_fallback[stripped_key] = set()
-                self._key_stripped_fallback[stripped_key].add(normalized)
+                # For backward compatibility, _key_lookup stores first row
+                if variant not in self._key_lookup:
+                    self._key_lookup[variant] = row_dict
         
         self._key_lookup_built = True
     
+    def _generate_ean_variants(self, key: str) -> set:
+        """Generate all likely EAN/numeric variants of a key.
+        
+        For key '078484099216' (13 chars), generates:
+        - '78484099216' (stripped)
+        - '078484099216' (original)
+        - '0078484099216' (padded to 14)
+        
+        For key '78484099216' (12 chars), generates:
+        - '78484099216' (original)
+        - '078484099216' (padded to 13)
+        - '0078484099216' (padded to 14)
+        """
+        variants = {key}  # Always include original
+        
+        if not key or not key.isdigit():
+            return variants
+        
+        # Add stripped version (no leading zeros)
+        stripped = key.lstrip('0')
+        if not stripped:
+            stripped = '0'
+        variants.add(stripped)
+        
+        # Add padded versions up to 14 chars (EAN-13 + safety)
+        # This handles cases like 12-digit -> 13-digit EAN
+        current = stripped
+        while len(current) < 14:
+            current = '0' + current
+            variants.add(current)
+        
+        return variants
+
+    
     def get_all_rows_for_key(self, key: str) -> List[Dict[str, Any]]:
-        """Get ALL rows matching a key (for smart duplicate handling).
+        """Get ALL rows matching a key.
+        
+        Since we pre-index all EAN variants, this is now simple:
+        just normalize the lookup key and check the index.
         
         Returns:
             List of row dictionaries, or empty list if no match
         """
         if not hasattr(self, '_key_all_rows'):
             return []
+        
         normalized = normalize_key(key, self.key_options)
-        
-        # Try exact match first
-        if normalized in self._key_all_rows:
-            return self._key_all_rows[normalized]
-            
-        # Try fallback: matches differing only by leading zeros
-        # Only if strict stripping is OFF (otherwise normalized is already stripped)
-        if hasattr(self, '_key_stripped_fallback') and not self.key_options.get('strip_leading_zeros', False) and normalized:
-            stripped = normalized.lstrip('0')
-            if not stripped: stripped = '0'
-            
-            if stripped in self._key_stripped_fallback:
-                # Found keys that match when stripped!
-                matching_original_keys = self._key_stripped_fallback[stripped]
-                all_combined_rows = []
-                for orig_key in matching_original_keys:
-                    rows = self._key_all_rows.get(orig_key)
-                    if rows:
-                        all_combined_rows.extend(rows)
-                        all_combined_rows.extend(rows)
-                return all_combined_rows
-        
-        # Try fallback: Explicit Stripping (Handle Base='0123' -> Source='123')
-        # Even if strip_leading_zeros is False, if we fail to find '0123', try finding '123'
-        if normalized and normalized.startswith('0'):
-            stripped_lookup = normalized.lstrip('0')
-            if not stripped_lookup: stripped_lookup = '0'
-            
-            # Check if this stripped key exists in the INDEX directly
-            if stripped_lookup in self._key_all_rows:
-                return self._key_all_rows[stripped_lookup]
-                
-            # Also check if the stripped key exists via the fallback map (Source='00123')
-            # This handles Base='0123' -> Source='00123' via transitive stripping logic
-            if hasattr(self, '_key_stripped_fallback') and stripped_lookup in self._key_stripped_fallback:
-                matching_original_keys = self._key_stripped_fallback[stripped_lookup]
-                all_combined_rows = []
-                for orig_key in matching_original_keys:
-                    rows = self._key_all_rows.get(orig_key)
-                    if rows:
-                        all_combined_rows.extend(rows)
-                return all_combined_rows
+        return self._key_all_rows.get(normalized, [])
 
-        # Try fallback: Zero Padding (EAN-13 support)
-        # If input is '12356' but source has '012356', and stripping didn't work (maybe source key is complex)
-        # We try adding zeros explicitly.
-        if normalized and normalized.isdigit() and len(normalized) < 14:
-            # Try adding zeros up to typical identifier lengths (e.g. 13, 14, or just general padding)
-            # We try padding up to 5 zeros deep or up to 14 chars total
-            current_pad = "0" + normalized
-            while len(current_pad) <= 14 and len(current_pad) <= len(normalized) + 5:
-                if current_pad in self._key_all_rows:
-                    return self._key_all_rows[current_pad]
-                current_pad = "0" + current_pad
-                
-        return []
     
     def get_best_row_for_key(self, key: str, target_column: str) -> Tuple[Optional[Dict[str, Any]], int]:
         """Get the best row for a key based on target column availability.
@@ -296,64 +281,24 @@ class DataSource:
     ) -> Tuple[Optional[Dict[str, Any]], float, Optional[str]]:
         """
         Get row data for a key with fuzzy matching fallback.
-        This is BETTER than VLOOKUP as it can find approximate matches.
         
-        Args:
-            key: The key to search for
-            threshold: Minimum similarity ratio (0.0-1.0) for fuzzy match
-            
+        Since we pre-index all EAN variants, exact matching is now comprehensive.
+        Fuzzy matching is only needed for typos, not numeric format differences.
+        
         Returns:
             Tuple of (row_data, similarity_score, matched_key)
-            If exact match found: (data, 1.0, key)
-            If fuzzy match found: (data, score, matched_key)
-            If no match: (None, 0.0, None)
         """
         from utils.fuzzy_matcher import find_best_fuzzy_match
         
         normalized = normalize_key(key, self.key_options)
         
-        # Try exact match first (fastest)
+        # Try exact match first (now includes all EAN variants automatically)
         if normalized and normalized in self._key_lookup:
             row_data = self._key_lookup[normalized]
             if row_data is not None:
                 return row_data, 1.0, normalized
-                
-        # Try fallback: matches differing only by leading zeros (Fast "Fuzzy")
-        if hasattr(self, '_key_stripped_fallback') and not self.key_options.get('strip_leading_zeros', False) and normalized:
-            stripped = normalized.lstrip('0')
-            if not stripped: stripped = '0'
-            
-            if stripped in self._key_stripped_fallback:
-                # Found keys that match when stripped!
-                # Pick any matching original key
-                orig_key = next(iter(self._key_stripped_fallback[stripped]))
-                row_data = self._key_lookup.get(orig_key)
-                if row_data:
-                    return row_data, 1.0, orig_key
         
-                if row_data:
-                    return row_data, 1.0, orig_key
-        
-        # Try fallback: Explicit Stripping (Handle Base='0123' -> Source='123')
-        if normalized and normalized.startswith('0'):
-            stripped_lookup = normalized.lstrip('0')
-            if not stripped_lookup: stripped_lookup = '0'
-            
-            # Check direct match for trimmed key
-            if stripped_lookup in self._key_lookup:
-                 return self._key_lookup[stripped_lookup], 1.0, stripped_lookup
-        
-        # Try fallback: Zero Padding (EAN-13 support) - Explicit check
-        if normalized and normalized.isdigit() and len(normalized) < 14:
-            current_pad = "0" + normalized
-            while len(current_pad) <= 14 and len(current_pad) <= len(normalized) + 5:
-                if current_pad in self._key_lookup:
-                     row_data = self._key_lookup[current_pad]
-                     if row_data is not None:
-                         return row_data, 1.0, current_pad
-                current_pad = "0" + current_pad
-        
-        # Fallback to fuzzy matching
+        # Fallback to fuzzy matching for actual typos
         if normalized and threshold < 1.0:
             matched_key, score, row_data = find_best_fuzzy_match(
                 normalized, 
