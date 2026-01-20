@@ -198,6 +198,27 @@ class DataSource:
                         all_combined_rows.extend(rows)
                 return all_combined_rows
         
+        # Try fallback: Explicit Stripping (Handle Base='0123' -> Source='123')
+        # Even if strip_leading_zeros is False, if we fail to find '0123', try finding '123'
+        if normalized and normalized.startswith('0'):
+            stripped_lookup = normalized.lstrip('0')
+            if not stripped_lookup: stripped_lookup = '0'
+            
+            # Check if this stripped key exists in the INDEX directly
+            if stripped_lookup in self._key_all_rows:
+                return self._key_all_rows[stripped_lookup]
+                
+            # Also check if the stripped key exists via the fallback map (Source='00123')
+            # This handles Base='0123' -> Source='00123' via transitive stripping logic
+            if hasattr(self, '_key_stripped_fallback') and stripped_lookup in self._key_stripped_fallback:
+                matching_original_keys = self._key_stripped_fallback[stripped_lookup]
+                all_combined_rows = []
+                for orig_key in matching_original_keys:
+                    rows = self._key_all_rows.get(orig_key)
+                    if rows:
+                        all_combined_rows.extend(rows)
+                return all_combined_rows
+
         # Try fallback: Zero Padding (EAN-13 support)
         # If input is '12356' but source has '012356', and stripping didn't work (maybe source key is complex)
         # We try adding zeros explicitly.
@@ -309,6 +330,18 @@ class DataSource:
                 row_data = self._key_lookup.get(orig_key)
                 if row_data:
                     return row_data, 1.0, orig_key
+        
+                if row_data:
+                    return row_data, 1.0, orig_key
+        
+        # Try fallback: Explicit Stripping (Handle Base='0123' -> Source='123')
+        if normalized and normalized.startswith('0'):
+            stripped_lookup = normalized.lstrip('0')
+            if not stripped_lookup: stripped_lookup = '0'
+            
+            # Check direct match for trimmed key
+            if stripped_lookup in self._key_lookup:
+                 return self._key_lookup[stripped_lookup], 1.0, stripped_lookup
         
         # Try fallback: Zero Padding (EAN-13 support) - Explicit check
         if normalized and normalized.isdigit() and len(normalized) < 14:
