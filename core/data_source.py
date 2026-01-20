@@ -205,8 +205,9 @@ class DataSource:
     def get_all_rows_for_key(self, key: str) -> List[Dict[str, Any]]:
         """Get ALL rows matching a key.
         
-        Since we pre-index all EAN variants, this is now simple:
-        just normalize the lookup key and check the index.
+        Source index has ALL EAN variants pre-indexed.
+        Base key is taken AS-IS (minimal cleanup only).
+        This is efficient: O(1) direct lookup, no iteration.
         
         Returns:
             List of row dictionaries, or empty list if no match
@@ -214,8 +215,17 @@ class DataSource:
         if not hasattr(self, '_key_all_rows'):
             return []
         
-        normalized = normalize_key(key, self.key_options)
-        return self._key_all_rows.get(normalized, [])
+        # Minimal cleanup only (trim, .0 removal)
+        if key is None:
+            return []
+        key_str = str(key).strip()
+        if not key_str or key_str.lower() == 'nan':
+            return []
+        if key_str.endswith('.0') and key_str[:-2].replace('-', '').isdigit():
+            key_str = key_str[:-2]
+        
+        # Direct lookup - source index has all variants
+        return self._key_all_rows.get(key_str, [])
 
     
     def get_best_row_for_key(self, key: str, target_column: str) -> Tuple[Optional[Dict[str, Any]], int]:
