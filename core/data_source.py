@@ -132,6 +132,9 @@ class DataSource:
         
         self._key_lookup = {}
         self._key_all_rows = {}  # NEW: Store ALL rows for each key
+        self._key_stripped_fallback = {}  # NEW: Map stripped keys -> list of actual keys
+        
+        strip_zeros_enabled = self.key_options.get('strip_leading_zeros', False)
         
         for idx, row in self.dataframe.iterrows():
             raw_key = row.get(self.key_column)
@@ -150,6 +153,17 @@ class DataSource:
             # For backward compatibility, _key_lookup stores first row
             if normalized not in self._key_lookup:
                 self._key_lookup[normalized] = row_dict
+            
+            # Populate stripped fallback if needed
+            # (If strip_zeros is already ON, we don't need this as normalized key is already stripped)
+            if not strip_zeros_enabled and normalized:
+                # Force strip zeros for the fallback key
+                stripped_key = normalized.lstrip('0')
+                if not stripped_key: stripped_key = '0'
+                
+                if stripped_key not in self._key_stripped_fallback:
+                    self._key_stripped_fallback[stripped_key] = set()
+                self._key_stripped_fallback[stripped_key].add(normalized)
         
         self._key_lookup_built = True
     
@@ -162,7 +176,28 @@ class DataSource:
         if not hasattr(self, '_key_all_rows'):
             return []
         normalized = normalize_key(key, self.key_options)
-        return self._key_all_rows.get(normalized, [])
+        
+        # Try exact match first
+        if normalized in self._key_all_rows:
+            return self._key_all_rows[normalized]
+            
+        # Try fallback: matches differing only by leading zeros
+        # Only if strict stripping is OFF (otherwise normalized is already stripped)
+        if hasattr(self, '_key_stripped_fallback') and not self.key_options.get('strip_leading_zeros', False) and normalized:
+            stripped = normalized.lstrip('0')
+            if not stripped: stripped = '0'
+            
+            if stripped in self._key_stripped_fallback:
+                # Found keys that match when stripped!
+                matching_original_keys = self._key_stripped_fallback[stripped]
+                all_combined_rows = []
+                for orig_key in matching_original_keys:
+                    rows = self._key_all_rows.get(orig_key)
+                    if rows:
+                        all_combined_rows.extend(rows)
+                return all_combined_rows
+                
+        return []
     
     def get_best_row_for_key(self, key: str, target_column: str) -> Tuple[Optional[Dict[str, Any]], int]:
         """Get the best row for a key based on target column availability.
@@ -214,11 +249,10 @@ class DataSource:
     
     def get_value_for_key(self, key: str, column: str) -> Any:
         """Get a specific column value for a given key."""
-        normalized = normalize_key(key, self.key_options)
-        if normalized in self._key_lookup:
-            row_data = self._key_lookup[normalized]
-            if row_data is not None:
-                return row_data.get(column)
+        # Use get_all_rows_for_key to benefit from fallback logic
+        rows = self.get_all_rows_for_key(key)
+        if rows:
+            return rows[0].get(column)
         return None
     
     def get_row_for_key_fuzzy(
@@ -249,6 +283,19 @@ class DataSource:
             row_data = self._key_lookup[normalized]
             if row_data is not None:
                 return row_data, 1.0, normalized
+                
+        # Try fallback: matches differing only by leading zeros (Fast "Fuzzy")
+        if hasattr(self, '_key_stripped_fallback') and not self.key_options.get('strip_leading_zeros', False) and normalized:
+            stripped = normalized.lstrip('0')
+            if not stripped: stripped = '0'
+            
+            if stripped in self._key_stripped_fallback:
+                # Found keys that match when stripped!
+                # Pick any matching original key
+                orig_key = next(iter(self._key_stripped_fallback[stripped]))
+                row_data = self._key_lookup.get(orig_key)
+                if row_data:
+                    return row_data, 1.0, orig_key
         
         # Fallback to fuzzy matching
         if normalized and threshold < 1.0:
